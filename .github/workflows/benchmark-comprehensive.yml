@@ -30,17 +30,25 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
       
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Install Chromium for Lighthouse
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y chromium-browser || sudo apt-get install -y chromium
+          CHROME_BIN=$(which chromium-browser 2>/dev/null || which chromium 2>/dev/null)
+          echo "CHROME_PATH=${CHROME_BIN}" >> $GITHUB_ENV
+          echo "Chromium installed at: ${CHROME_BIN}"
       
       - name: Install benchmark dependencies
         working-directory: benchmarks/scripts
@@ -49,6 +57,16 @@ jobs:
       - name: Run comprehensive Docker benchmark
         working-directory: benchmarks/scripts
         run: npm run benchmark:docker:full
+        continue-on-error: true
+      
+      - name: Run stress tests
+        working-directory: benchmarks/scripts
+        run: npm run benchmark:stress
+        continue-on-error: true
+      
+      - name: Merge stress test results into comprehensive results
+        working-directory: benchmarks/scripts
+        run: npm run merge-stress-results
         continue-on-error: true
       
       - name: Update README.md with benchmark results
@@ -67,7 +85,7 @@ jobs:
       
       - name: Upload benchmark results as artifact
         if: steps.check_results.outputs.results_exist == 'true'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: benchmark-results
           path: |
@@ -77,6 +95,7 @@ jobs:
       
       - name: Create or update benchmark results PR
         if: steps.check_results.outputs.results_exist == 'true'
+        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
