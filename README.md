@@ -136,12 +136,12 @@ See [DOCKER.md](DOCKER.md) for Docker setup and [BENCHMARK_GUIDE.md](BENCHMARK_G
 ### Quick Highlights
 
 - **Smallest gzipped bundle:** blade (1.32 KB)
-- **Highest measured throughput:** react (0 req/s peak)
+- **Highest measured throughput:** leptos (25,814 req/s peak)
 
 **Notes:**
 - Dioxus Lighthouse audit produced NaN values; rebuild and re-run Lighthouse in idle conditions (no concurrent stress test).
 
-- Top throughput (top 3): react (0 req/s), vue (0 req/s), angular (0 req/s)
+- Top throughput (top 3): leptos (25,814 req/s), angular (23,227 req/s), yew (22,007 req/s)
 - Smallest bundles (top 3): blade (1.32 KB), vue (25.44 KB), react (59.74 KB)
 
 ---
@@ -169,13 +169,13 @@ See [DOCKER.md](DOCKER.md) for Docker setup and [BENCHMARK_GUIDE.md](BENCHMARK_G
 
 | Framework | Peak Avg Req/s | p50 | p90 | p99 | Errors |
 |-----------|---------------:|----:|----:|----:|------:|
-| **React** | 0 | N/A | N/A | N/A | 0 |
-| **Vue** | 0 | N/A | N/A | N/A | 0 |
-| **Angular** | 0 | N/A | N/A | N/A | 0 |
-| **Leptos** | 0 | N/A | N/A | N/A | 0 |
-| **Yew** | 0 | N/A | N/A | N/A | 0 |
+| **Leptos** | 25,814 | N/A | N/A | N/A | 0 |
+| **Angular** | 23,227 | N/A | N/A | N/A | 0 |
+| **Yew** | 22,007 | N/A | N/A | N/A | 0 |
+| **Vue** | 16,061 | N/A | N/A | N/A | 0 |
+| **React** | 14,741 | N/A | N/A | N/A | 0 |
+| **Blade** | 457 | N/A | N/A | N/A | 0 |
 | **Dioxus** | 0 | N/A | N/A | N/A | 0 |
-| **Blade** | 0 | N/A | N/A | N/A | 0 |
 
 ---
 
@@ -183,13 +183,13 @@ See [DOCKER.md](DOCKER.md) for Docker setup and [BENCHMARK_GUIDE.md](BENCHMARK_G
 
 | Framework | Peak Avg Req/s | Peak Concurrency | p50 | p90 | p99 | Errors | Non-2xx |
 |-----------|---------------:|----------------:|----:|----:|----:|------:|-------:|
-| react | 0 | 2,000 | N/A | N/A | N/A | 0 | 0 |
-| vue | 0 | 2,000 | N/A | N/A | N/A | 0 | 0 |
-| angular | 0 | 2,000 | N/A | N/A | N/A | 0 | 0 |
-| leptos | 0 | 2,000 | N/A | N/A | N/A | 0 | 0 |
-| yew | 0 | 2,000 | N/A | N/A | N/A | 0 | 0 |
+| leptos | 25,814 | 2,000 | N/A | N/A | N/A | 0 | 0 |
+| angular | 23,227 | 2,000 | N/A | N/A | N/A | 0 | 0 |
+| yew | 22,007 | 2,000 | N/A | N/A | N/A | 0 | 0 |
+| vue | 16,061 | 2,000 | N/A | N/A | N/A | 0 | 0 |
+| react | 14,741 | 2,000 | N/A | N/A | N/A | 0 | 0 |
+| blade | 457 | 2,000 | N/A | N/A | N/A | 0 | 0 |
 | dioxus | 0 | 2,000 | N/A | N/A | N/A | 0 | 0 |
-| blade | 0 | 2,000 | N/A | N/A | N/A | 0 | 0 |
 
 ---
 
