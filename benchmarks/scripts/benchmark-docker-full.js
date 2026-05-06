@@ -198,9 +198,13 @@ async function runLighthouse(url, name) {
   console.log(`\n🔍 Running Lighthouse audit for ${name}...`);
   console.log(`   URL: ${url}`);
   
-  const chrome = await chromeLauncher.launch({
-    chromeFlags: ['--headless', '--disable-gpu', '--no-sandbox']
-  });
+  const launchOptions = {
+    chromeFlags: ['--headless', '--disable-gpu', '--no-sandbox', '--disable-dev-shm-usage']
+  };
+  if (process.env.CHROME_PATH) {
+    launchOptions.chromePath = process.env.CHROME_PATH;
+  }
+  const chrome = await chromeLauncher.launch(launchOptions);
   
   const options = {
     logLevel: 'error',
