@@ -85,7 +85,7 @@ jobs:
       
       - name: Upload benchmark results as artifact
         if: steps.check_results.outputs.results_exist == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: benchmark-results
           path: |
