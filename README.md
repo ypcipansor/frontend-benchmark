@@ -131,17 +131,17 @@ See [DOCKER.md](DOCKER.md) for Docker setup and [BENCHMARK_GUIDE.md](BENCHMARK_G
 
 ## Benchmark Results
 
-*Last updated: 2026-05-06*
+*Last updated: 2026-05-11*
 
 ### Quick Highlights
 
 - **Smallest gzipped bundle:** blade (1.32 KB)
-- **Highest measured throughput:** react (0 req/s peak)
+- **Highest measured throughput:** yew (30,510 req/s peak)
 
 **Notes:**
 - Dioxus Lighthouse audit produced NaN values; rebuild and re-run Lighthouse in idle conditions (no concurrent stress test).
 
-- Top throughput (top 3): react (0 req/s), vue (0 req/s), angular (0 req/s)
+- Top throughput (top 3): yew (30,510 req/s), angular (25,989 req/s), leptos (23,550 req/s)
 - Smallest bundles (top 3): blade (1.32 KB), vue (25.44 KB), react (59.74 KB)
 
 ---
@@ -155,9 +155,9 @@ See [DOCKER.md](DOCKER.md) for Docker setup and [BENCHMARK_GUIDE.md](BENCHMARK_G
 | blade | 1.32 KB | 4.01 KB |
 | vue | 25.44 KB | 65.66 KB |
 | react | 59.74 KB | 191.49 KB |
-| angular | 62.66 KB | 192.7 KB |
-| leptos | 78.71 KB | 250.02 KB |
-| yew | 81.2 KB | 232.03 KB |
+| angular | 62.84 KB | 193.09 KB |
+| leptos | 78.79 KB | 250.43 KB |
+| yew | 81.19 KB | 231.8 KB |
 | dioxus | 0 Bytes | 0 Bytes |
 
 #### Lighthouse Performance
@@ -169,13 +169,13 @@ See [DOCKER.md](DOCKER.md) for Docker setup and [BENCHMARK_GUIDE.md](BENCHMARK_G
 
 | Framework | Peak Avg Req/s | p50 | p90 | p99 | Errors |
 |-----------|---------------:|----:|----:|----:|------:|
-| **React** | 0 | N/A | N/A | N/A | 0 |
-| **Vue** | 0 | N/A | N/A | N/A | 0 |
-| **Angular** | 0 | N/A | N/A | N/A | 0 |
-| **Leptos** | 0 | N/A | N/A | N/A | 0 |
-| **Yew** | 0 | N/A | N/A | N/A | 0 |
+| **Yew** | 30,510 | N/A | N/A | N/A | 0 |
+| **Angular** | 25,989 | N/A | N/A | N/A | 0 |
+| **Leptos** | 23,550 | N/A | N/A | N/A | 0 |
+| **Vue** | 22,055 | N/A | N/A | N/A | 0 |
+| **React** | 18,299 | N/A | N/A | N/A | 0 |
+| **Blade** | 377 | N/A | N/A | N/A | 0 |
 | **Dioxus** | 0 | N/A | N/A | N/A | 0 |
-| **Blade** | 0 | N/A | N/A | N/A | 0 |
 
 ---
 
@@ -183,13 +183,13 @@ See [DOCKER.md](DOCKER.md) for Docker setup and [BENCHMARK_GUIDE.md](BENCHMARK_G
 
 | Framework | Peak Avg Req/s | Peak Concurrency | p50 | p90 | p99 | Errors | Non-2xx |
 |-----------|---------------:|----------------:|----:|----:|----:|------:|-------:|
-| react | 0 | 2,000 | N/A | N/A | N/A | 0 | 0 |
-| vue | 0 | 2,000 | N/A | N/A | N/A | 0 | 0 |
-| angular | 0 | 2,000 | N/A | N/A | N/A | 0 | 0 |
-| leptos | 0 | 2,000 | N/A | N/A | N/A | 0 | 0 |
-| yew | 0 | 2,000 | N/A | N/A | N/A | 0 | 0 |
+| yew | 30,510 | 2,000 | N/A | N/A | N/A | 0 | 0 |
+| angular | 25,989 | 2,000 | N/A | N/A | N/A | 0 | 0 |
+| leptos | 23,550 | 2,000 | N/A | N/A | N/A | 0 | 0 |
+| vue | 22,055 | 2,000 | N/A | N/A | N/A | 0 | 0 |
+| react | 18,299 | 2,000 | N/A | N/A | N/A | 0 | 0 |
+| blade | 377 | 2,000 | N/A | N/A | N/A | 0 | 0 |
 | dioxus | 0 | 2,000 | N/A | N/A | N/A | 0 | 0 |
-| blade | 0 | 2,000 | N/A | N/A | N/A | 0 | 0 |
 
 ---
 
