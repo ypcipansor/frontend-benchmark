@@ -17,7 +17,7 @@
   "dependencies": {
     "chrome-launcher": "^1.1.0",
     "lighthouse": "^13.0.3",
-    "puppeteer": "^24.37.5"
+    "puppeteer": "^25.0.4"
     ,"autocannon": "^8.0.0"
   }
 }
