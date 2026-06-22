@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -55,7 +55,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -90,7 +90,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -126,7 +126,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -161,7 +161,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -196,7 +196,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -232,7 +232,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -273,7 +273,7 @@ jobs:
         framework: [react, vue, angular]
       fail-fast: false
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
