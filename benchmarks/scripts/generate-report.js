@@ -217,7 +217,7 @@ if (require.main === module) {
     const cleanPath = path.join(__dirname, 'generate-report-clean.js');
     if (fs.existsSync(cleanPath)) {
       console.log('\n🔁 Running clean generator to ensure consistent RESULTS.md...');
-      cp.execSync(`node ${cleanPath}`, { stdio: 'inherit' });
+      cp.execFileSync(process.execPath, [cleanPath], { stdio: 'inherit' });
     }
   } catch (err) {
     console.warn('Could not run clean generator: ' + err.message);
