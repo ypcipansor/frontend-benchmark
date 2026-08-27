@@ -1,0 +1,50 @@
+name: Auto-merge benchmark results PRs
+
+# Whenever a check suite completes, squash-merge any open "Update Benchmark Results"
+# PR authored by github-actions[bot] whose check runs are all green (success/skipped).
+on:
+  check_suite:
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Auto-merge benchmark PRs with all-green checks
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SELF_NAME: Auto-merge benchmark PRs
+        run: |
+          set -e
+
+          prs=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100" \
+            | jq -r '.[] | select((.user.login == "github-actions[bot]") and (.title | startswith("Update Benchmark Results"))) | .number + " " + .head.sha')
+
+          if [ -z "$prs" ]; then
+            echo "No open benchmark-results PRs."
+            exit 0
+          fi
+
+          while read -r num sha; do
+            [ -z "$num" ] && continue
+            checks=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+              "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$sha/check-runs")
+
+            # Exclude this workflow's own in-progress run from the verdict.
+            verdict=$(echo "$checks" | jq \
+              '[.check_runs[] | select(.name != env.SELF_NAME)] | (length > 0) and all(.conclusion == "success" or .conclusion == "skipped")')
+
+            if [ "$verdict" = "true" ]; then
+              echo "PR #$num: all checks green -> squash-merging"
+              curl -s -X PUT -H "Authorization: Bearer $GH_TOKEN" \
+                "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pulls/$num/merge" \
+                -d '{"merge_method":"squash"}' | jq -r '.message // "merged"'
+            else
+              echo "PR #$num: checks not all green; skipping."
+            fi
+          done <<< "$prs"
