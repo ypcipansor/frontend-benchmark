@@ -42,9 +42,11 @@ services:
     container_name: frontend-benchmark-yew
 
   dioxus:
+    # Build context is the repository root so the Dockerfile can copy the shared
+    # stylesheet (shared/styles/todo.css), matching the Leptos/Yew setup.
     build:
-      context: ./implementations/dioxus
-      dockerfile: Dockerfile
+      context: ./
+      dockerfile: implementations/dioxus/Dockerfile
     ports:
       - "3006:80"
     container_name: frontend-benchmark-dioxus

@@ -12,20 +12,29 @@ RUN rustup target add wasm32-unknown-unknown && \
 
 WORKDIR /app
 
-# Copy source files
-COPY . .
+# Copy the dioxus implementation and the shared stylesheet. The build context is
+# the repository root (see docker-compose.yml) so that index.html can reference
+# the shared CSS exactly like Leptos and Yew (../../shared/styles/todo.css).
+COPY implementations/dioxus/ ./dioxus/
+COPY shared/ ./shared/
 
-# Build for production
+# Build for production from the dioxus directory so the shared CSS resolves.
+WORKDIR /app/dioxus
 RUN trunk build --release
 
 # Production stage
 FROM nginx:alpine
 
 # Copy built files to nginx
-COPY --from=builder /app/dist /usr/share/nginx/html
+COPY --from=builder /app/dioxus/dist /usr/share/nginx/html
+
+# Serve the shared stylesheet at the path referenced by index.html
+# (../../shared/styles/todo.css), so the app uses the same shared design as
+# Leptos and Yew and the Lighthouse/bundle benchmarks reflect it.
+COPY shared/styles/todo.css /usr/share/nginx/html/shared/styles/todo.css
 
 # Copy nginx configuration
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY implementations/dioxus/nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 

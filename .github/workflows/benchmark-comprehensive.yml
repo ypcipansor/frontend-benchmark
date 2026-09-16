@@ -107,7 +107,8 @@ jobs:
           git checkout -b "$BRANCH_NAME"
           
           # Stage ONLY README.md — the raw results JSON (benchmarks/results/*.json)
-          # are gitignored and must not be committed. No other files change.
+          # are gitignored and must not be committed. They are uploaded as a
+          # 90-day workflow artifact instead. No other files change.
           git add README.md
           
           # Check if there are changes
@@ -132,7 +133,7 @@ jobs:
           - Lighthouse performance metrics
           - CPU and memory usage statistics
 
-          > **Note:** This PR updates `README.md` only. The raw benchmark results stay in `benchmarks/results/` and are gitignored.
+          > **Note:** This PR updates `README.md` only. The raw benchmark results stay in `benchmarks/results/`, are gitignored, and are available as a 90-day workflow artifact.
 
           Please review the results and merge if everything looks correct." \
             --base main \

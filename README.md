@@ -13,6 +13,8 @@
 
 *Last updated: 2026-09-16*
 
+> ⚠️ **Provenance:** Values below were collected across separate runs and environments and may not be directly comparable. A single, fresh, full 7-framework run in one environment is needed before rankings can be treated as authoritative.
+
 ### Quick Highlights
 
 - 🚀 **Top Lighthouse score:** Vue — **100/100**
@@ -176,7 +178,7 @@ frontend-benchmark/
 ├── implementations/      # React, Vue, Angular, Leptos, Yew, Dioxus, Blade
 ├── benchmarks/
 │   ├── scripts/          # Benchmark automation (Lighthouse, stress, bundle, README updater)
-│   ├── results/          # Raw results JSON (gitignored)
+│   ├── results/          # Raw results JSON (gitignored; kept as a 90-day CI artifact)
 │   └── tools/            # Custom measurement tools
 ├── shared/styles/        # Common CSS
 ├── .github/workflows/    # CI + weekly Comprehensive Benchmark
@@ -193,7 +195,7 @@ The **Comprehensive Benchmark** workflow runs **every Monday (00:00 UTC)** (and 
 4. Merges the measurements and regenerates this README's benchmark section
 5. Opens a PR that updates **only `README.md`** (raw JSON stays gitignored)
 
-Raw numbers live in `benchmarks/results/comprehensive-benchmark-results.json` and are regenerated on each run.
+The raw JSON under `benchmarks/results/` is **not persisted in the repository**. Each run regenerates `comprehensive-benchmark-results.json` and uploads it as a workflow artifact that is retained for **90 days**, after which it is removed. The tables above are the durable record — re-run the full benchmark to refresh them.
 
 ## Contributing
 

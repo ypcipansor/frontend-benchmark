@@ -47,9 +47,18 @@ function hasValidLighthouse(r) {
          r.metrics && Number.isFinite(r.metrics.firstContentfulPaint);
 }
 
-// Total raw (uncompressed) size of all assets.
+// Total raw (uncompressed) size of all assets. Returns null when no bundle
+// data is present at all, so the caller can render "N/A" instead of "0 Bytes".
 function totalSize(r) {
-  return (r.totalJS || 0) + (r.totalCSS || 0) + (r.totalWASM || 0) + (r.totalHTML || 0);
+  const js = r.totalJS === undefined ? 0 : r.totalJS;
+  const css = r.totalCSS === undefined ? 0 : r.totalCSS;
+  const wasm = r.totalWASM === undefined ? 0 : r.totalWASM;
+  const html = r.totalHTML === undefined ? 0 : r.totalHTML;
+  if (r.totalGzipped === undefined && r.totalJS === undefined &&
+      r.totalCSS === undefined && r.totalWASM === undefined && r.totalHTML === undefined) {
+    return null;
+  }
+  return js + css + wasm + html;
 }
 
 // The stress sample that achieved the highest throughput (avg req/s).
@@ -63,9 +72,12 @@ function peakStressSample(r) {
   });
 }
 
-// Sum a field across all stress samples for the given framework.
+// Sum a field across all stress samples for the given framework. Returns null
+// when there are no samples, so callers can render "N/A" instead of a
+// misleading "0" when the measurement is genuinely absent/failed.
 function sumAcrossSamples(r, field) {
   const samples = (r.stress && r.stress.samples) || [];
+  if (!samples.length) return null;
   return samples.reduce((acc, s) => acc + (s[field] || 0), 0);
 }
 
@@ -102,6 +114,12 @@ function generateBenchmarkSection(results) {
   let md = '## Benchmark Results\n\n';
   md += `*Last updated: ${date}*\n\n`;
 
+  // Provenance warning. Numbers below may come from separate benchmark runs /
+  // environments (e.g. a local manual run for one framework vs. historical CI
+  // data for others), so rankings should be treated with care until a single
+  // fresh full 7-framework run is executed in one environment.
+  md += '> ⚠️ **Provenance:** Values below were collected across separate runs and environments and may not be directly comparable. A single, fresh, full 7-framework run in one environment is needed before rankings can be treated as authoritative.\n\n';
+
   // ----- Quick Highlights -----
   md += '### Quick Highlights\n\n';
   const perfWinner = perfList[0];
@@ -109,7 +127,9 @@ function generateBenchmarkSection(results) {
   const throughputWinner = summaryList[0];
 
   if (perfWinner) md += `- 🚀 **Top Lighthouse score:** ${displayName(perfWinner.framework)} — **${perfWinner.performanceScore}/100**\n`;
-  if (bundleWinner) md += `- 📦 **Smallest gzipped bundle:** ${bundleWinner.framework} — **${formatBytes(bundleWinner.totalGzipped || 0)}**\n`;
+  if (bundleWinner && bundleWinner.totalGzipped !== undefined && bundleWinner.totalGzipped !== null) {
+    md += `- 📦 **Smallest gzipped bundle:** ${bundleWinner.framework} — **${formatBytes(bundleWinner.totalGzipped)}**\n`;
+  }
   if (throughputWinner && throughputWinner.peak > 0) {
     md += `- ⚡ **Highest throughput:** ${displayName(throughputWinner.r.framework)} — **${formatNumber(throughputWinner.peak)} req/s** @ ${formatNumber(throughputWinner.sample && throughputWinner.sample.concurrency)} connections\n`;
   }
@@ -129,7 +149,7 @@ function generateBenchmarkSection(results) {
   const topThroughput = summaryList.filter(s => s.peak > 0).slice(0, 3)
     .map(s => `${displayName(s.r.framework)} (${formatNumber(s.peak)} req/s)`).join(', ');
   const topPerf = perfList.slice(0, 3).map(r => `${displayName(r.framework)} (${r.performanceScore}/100)`).join(', ');
-  const topBundles = bundleList.slice(0, 3).map(r => `${r.framework} (${formatBytes(r.totalGzipped || 0)})`).join(', ');
+  const topBundles = bundleList.slice(0, 3).map(r => `${r.framework} (${formatBytes(r.totalGzipped)})`).join(', ');
 
   md += `\n- Top throughput (top 3): ${topThroughput || 'N/A'}\n`;
   md += `- Top Lighthouse (top 3): ${topPerf || 'N/A'}\n`;
@@ -158,7 +178,7 @@ function generateBenchmarkSection(results) {
   md += '| Rank | Framework | Bundle (gzipped) | Total Size |\n';
   md += '|-----:|-----------|------------------:|-----------:|\n';
   bundleList.forEach((r, i) => {
-    md += `| ${i + 1} | ${r.framework} | ${formatBytes(r.totalGzipped || 0)} | ${formatBytes(totalSize(r))} |\n`;
+    md += `| ${i + 1} | ${r.framework} | ${formatBytes(r.totalGzipped)} | ${formatBytes(totalSize(r))} |\n`;
   });
   md += '\n';
 
