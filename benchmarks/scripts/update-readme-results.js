@@ -72,15 +72,6 @@ function peakStressSample(r) {
   });
 }
 
-// Sum a field across all stress samples for the given framework. Returns null
-// when there are no samples, so callers can render "N/A" instead of a
-// misleading "0" when the measurement is genuinely absent/failed.
-function sumAcrossSamples(r, field) {
-  const samples = (r.stress && r.stress.samples) || [];
-  if (!samples.length) return null;
-  return samples.reduce((acc, s) => acc + (s[field] || 0), 0);
-}
-
 // Render a latency value as "Nms" or "N/A".
 function ms(n) {
   return (n === undefined || n === null || isNaN(n)) ? 'N/A' : `${Math.round(n)}ms`;
@@ -191,9 +182,9 @@ function generateBenchmarkSection(results) {
     const sample = item.sample;
     const peak = item.peak > 0 ? formatNumber(item.peak) : 'N/A';
     const p50 = sample ? ms(sample.latency && sample.latency.p50) : 'N/A';
-    const p90 = sample && sample.latency ? ms(sample.latency.p90 || sample.latency.p95) : 'N/A';
+    const p90 = sample && sample.latency ? ms(sample.latency.p90) : 'N/A';
     const p99 = sample ? ms(sample.latency && sample.latency.p99) : 'N/A';
-    const errors = formatNumber(sumAcrossSamples(r, 'errors'));
+    const errors = formatNumber(sample && sample.errors);
     md += `| ${i + 1} | **${displayName(r.framework)}** | ${peak} | ${p50} | ${p90} | ${p99} | ${errors} |\n`;
   });
   md += '\n';
@@ -208,10 +199,10 @@ function generateBenchmarkSection(results) {
     const peak = item.peak > 0 ? formatNumber(item.peak) : 'N/A';
     const concurrency = sample ? formatNumber(sample.concurrency) : 'N/A';
     const p50 = sample ? ms(sample.latency && sample.latency.p50) : 'N/A';
-    const p90 = sample && sample.latency ? ms(sample.latency.p90 || sample.latency.p95) : 'N/A';
+    const p90 = sample && sample.latency ? ms(sample.latency.p90) : 'N/A';
     const p99 = sample ? ms(sample.latency && sample.latency.p99) : 'N/A';
-    const errors = formatNumber(sumAcrossSamples(r, 'errors'));
-    const non2xx = formatNumber(sumAcrossSamples(r, 'non2xx'));
+    const errors = formatNumber(sample && sample.errors);
+    const non2xx = formatNumber(sample && sample.non2xx);
     md += `| ${i + 1} | ${r.framework} | ${peak} | ${concurrency} | ${p50} | ${p90} | ${p99} | ${errors} | ${non2xx} |\n`;
   });
   md += '\n';

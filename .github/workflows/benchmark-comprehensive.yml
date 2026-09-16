@@ -94,7 +94,6 @@ jobs:
       
       - name: Open PR to commit benchmark results to README.md
         if: steps.check_results.outputs.results_exist == 'true'
-        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

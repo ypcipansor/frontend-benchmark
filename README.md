@@ -105,7 +105,7 @@ For detailed per-framework analysis and complete methodology, see [BENCHMARK_GUI
 | 🅰️ JavaScript / TypeScript | **Angular** | CSR | Node.js |
 | 🦀 Rust / WASM | **Leptos** | CSR (WASM) | Trunk |
 | 🦀 Rust / WASM | **Yew** | CSR (WASM) | Trunk |
-| 🦀 Rust / WASM | **Dioxus** | CSR (WASM) | Dioxus CLI |
+| 🦀 Rust / WASM | **Dioxus** | CSR (WASM) | Trunk |
 | 🐘 Server-side | **Blade.php** | SSR | PHP + Laravel |
 
 ## What This Benchmark Measures
