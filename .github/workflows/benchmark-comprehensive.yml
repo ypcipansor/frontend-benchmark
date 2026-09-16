@@ -72,7 +72,6 @@ jobs:
       - name: Update README.md with benchmark results
         working-directory: benchmarks/scripts
         run: npm run update-readme
-        continue-on-error: true
       
       - name: Check if benchmark results exist
         id: check_results
@@ -93,9 +92,8 @@ jobs:
             README.md
           retention-days: 90
       
-      - name: Create or update benchmark results PR
+      - name: Open PR to commit benchmark results to README.md
         if: steps.check_results.outputs.results_exist == 'true'
-        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -107,13 +105,14 @@ jobs:
           BRANCH_NAME="benchmark-results-$(date +%Y%m%d-%H%M%S)"
           git checkout -b "$BRANCH_NAME"
           
-          # Add the benchmark results files
-          git add README.md || true
-          git add benchmarks/results/ || true
+          # Stage ONLY README.md — the raw results JSON (benchmarks/results/*.json)
+          # are gitignored and must not be committed. They are uploaded as a
+          # 90-day workflow artifact instead. No other files change.
+          git add README.md
           
           # Check if there are changes
           if git diff --staged --quiet; then
-            echo "No changes to commit"
+            echo "No changes to README.md - nothing to commit."
             exit 0
           fi
           
@@ -132,6 +131,8 @@ jobs:
           - Bundle size analysis
           - Lighthouse performance metrics
           - CPU and memory usage statistics
+
+          > **Note:** This PR updates `README.md` only. The raw benchmark results stay in `benchmarks/results/`, are gitignored, and are available as a 90-day workflow artifact.
 
           Please review the results and merge if everything looks correct." \
             --base main \

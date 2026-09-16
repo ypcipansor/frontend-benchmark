@@ -1,195 +1,91 @@
 # Frontend Framework Benchmark
 
-A comprehensive benchmark comparing various frontend frameworks including React, Vue.js, Angular, Leptos, Yew, Dioxus, and Blade.php.
+> A data-driven, head-to-head performance comparison of **7 frontend frameworks** — React, Vue.js, Angular, Leptos, Yew, Dioxus, and Blade.php — running the **same Todo app** on the **same benchmark harness**.
+> Results below are **measured automatically every week** by GitHub Actions and pushed straight into this README.
 
-## Overview
+[![Basic Checks](https://github.com/ypcipansor/frontend-benchmark/actions/workflows/basic-checks.yml/badge.svg)](https://github.com/ypcipansor/frontend-benchmark/actions/workflows/basic-checks.yml)
+[![Frontend Build](https://github.com/ypcipansor/frontend-benchmark/actions/workflows/benchmark.yml/badge.svg)](https://github.com/ypcipansor/frontend-benchmark/actions/workflows/benchmark.yml)
+[![Comprehensive Benchmark](https://github.com/ypcipansor/frontend-benchmark/actions/workflows/benchmark-comprehensive.yml/badge.svg)](https://github.com/ypcipansor/frontend-benchmark/actions/workflows/benchmark-comprehensive.yml)
 
-This project implements the same Todo List application across multiple frontend frameworks to provide objective performance comparisons and developer experience insights.
-
-## Frameworks Included
-
-### JavaScript/TypeScript
-- **React** - Popular declarative UI library
-- **Vue.js** - Progressive JavaScript framework
-- **Angular** - Full-featured TypeScript framework
-
-### Rust WebAssembly (CSR)
-- **Leptos** - Fine-grained reactivity Rust framework
-- **Yew** - Component-based Rust framework
-- **Dioxus** - React-like Rust framework
-
-### Server-Side
-- **Blade.php** - Laravel's templating engine
-
-## Project Structure
-
-```
-frontend-benchmark/
-├── implementations/
-│   ├── react/           # React implementation
-│   ├── vue/             # Vue.js implementation
-│   ├── angular/         # Angular implementation
-│   ├── leptos/          # Leptos (Rust) implementation
-│   ├── yew/             # Yew (Rust) implementation
-│   ├── dioxus/          # Dioxus (Rust) implementation
-│   └── blade/           # Laravel Blade implementation
-├── benchmarks/
-│   ├── scripts/         # Benchmark automation scripts
-│   ├── results/         # Benchmark results and data
-│   └── tools/           # Custom measurement tools
-├── shared/
-│   └── styles/          # Common CSS styles
-└── BENCHMARK_SPEC.md    # Detailed specification
-```
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js 18+ (for JS frameworks)
-- Rust 1.70+ (for Rust frameworks)
-- PHP 8.1+ and Composer (for Blade)
-- Modern web browser (Chrome recommended for testing)
-
-### Running Implementations
-
-Each implementation has its own directory with specific instructions. See the README in each implementation folder.
-
-#### React
-```bash
-cd implementations/react
-npm install
-npm run dev
-```
-
-#### Vue.js
-```bash
-cd implementations/vue
-npm install
-npm run dev
-```
-
-#### Angular
-```bash
-cd implementations/angular
-npm install
-npm start
-```
-
-#### Leptos
-```bash
-cd implementations/leptos
-trunk serve
-```
-
-#### Yew
-```bash
-cd implementations/yew
-trunk serve
-```
-
-#### Dioxus
-```bash
-cd implementations/dioxus
-dx serve
-```
-
-#### Blade
-```bash
-cd implementations/blade
-composer install
-php artisan serve
-```
-
-## Running Benchmarks
-
-### Local Benchmarks
-
-```bash
-cd benchmarks/scripts
-npm install
-npm run benchmark:all
-```
-
-### Docker-based Benchmarks
-
-For consistent, isolated benchmarking using Docker containers:
-
-```bash
-cd benchmarks/scripts
-npm install
-
-# Quick benchmark (JS frameworks only, ~30 min)
-npm run benchmark:docker
-
-# Comprehensive benchmark (ALL frameworks including Rust, ~2 hours)
-# Includes: CPU usage, RAM usage, performance metrics
-npm run benchmark:docker:full
-```
-
-See [DOCKER.md](DOCKER.md) for Docker setup and [BENCHMARK_GUIDE.md](BENCHMARK_GUIDE.md) for comprehensive benchmarking guide.
+---
 
 ## Benchmark Results
 
-*Last updated: 2026-08-03*
+*Last updated: 2026-09-16*
+
+> ⚠️ **Provenance:** Values below were collected across separate runs and environments and may not be directly comparable. A single, fresh, full 7-framework run in one environment is needed before rankings can be treated as authoritative.
 
 ### Quick Highlights
 
-- **Smallest gzipped bundle:** blade (1.32 KB)
-- **Highest measured throughput:** vue (32,903 req/s peak)
+- 🚀 **Top Lighthouse score:** Vue — **100/100**
+- 📦 **Smallest gzipped bundle:** blade — **1.29 KB**
+- ⚡ **Highest throughput:** Dioxus — **38,050 req/s** @ 2,000 connections
 
-**Notes:**
-- Dioxus Lighthouse audit produced NaN values; rebuild and re-run Lighthouse in idle conditions (no concurrent stress test).
-
-- Top throughput (top 3): vue (32,903 req/s), leptos (32,434 req/s), angular (30,423 req/s)
-- Smallest bundles (top 3): blade (1.32 KB), vue (25.54 KB), react (59.72 KB)
-
----
-
-### Summary (at-a-glance)
-
-#### Bundle Sizes (gzipped)
-
-| Framework | Bundle (gzipped) | Total Size |
-|-----------|------------------:|-----------:|
-| blade | 1.32 KB | 4.01 KB |
-| vue | 25.54 KB | 65.94 KB |
-| react | 59.72 KB | 191.39 KB |
-| angular | 62.78 KB | 192.93 KB |
-| yew | 77.38 KB | 274.43 KB |
-| leptos | 77.93 KB | 390.96 KB |
-| dioxus | 0 Bytes | 0 Bytes |
-
-#### Lighthouse Performance
-
-| Framework | Perf | FCP | LCP | TTI |
-|-----------|-----:|----:|----:|----:|
-
-#### Throughput
-
-| Framework | Peak Avg Req/s | p50 | p90 | p99 | Errors |
-|-----------|---------------:|----:|----:|----:|------:|
-| **Vue** | 32,903 | N/A | N/A | N/A | 0 |
-| **Leptos** | 32,434 | N/A | N/A | N/A | 0 |
-| **Angular** | 30,423 | N/A | N/A | N/A | 0 |
-| **Yew** | 30,126 | N/A | N/A | N/A | 0 |
-| **React** | 17,895 | N/A | N/A | N/A | 0 |
-| **Blade** | 303 | N/A | N/A | N/A | 0 |
-| **Dioxus** | 0 | N/A | N/A | N/A | 0 |
+- Top throughput (top 3): Dioxus (38,050 req/s), Vue (32,903 req/s), Leptos (32,434 req/s)
+- Top Lighthouse (top 3): Vue (100/100), Leptos (100/100), Angular (100/100)
+- Smallest bundles (top 3): blade (1.29 KB), vue (24.94 KB), react (58.32 KB)
 
 ---
+
+### Lighthouse Performance
+
+| Rank | Framework | Perf | FCP | LCP | TTI |
+|-----:|-----------|-----:|----:|----:|----:|
+| 1 | vue | **100/100** | 1053ms | 1204ms | 1179ms |
+| 2 | leptos | **100/100** | 906ms | 1582ms | 1244ms |
+| 3 | angular | **100/100** | 1212ms | 1589ms | 1394ms |
+| 4 | yew | **100/100** | 903ms | 1579ms | 1612ms |
+| 5 | react | **100/100** | 1203ms | 1354ms | 1203ms |
+| 6 | dioxus | **98/100** | 1205ms | 2408ms | 2450ms |
+| 7 | blade | **87/100** | 751ms | 751ms | 751ms |
+
+### Bundle Sizes (gzipped)
+
+| Rank | Framework | Bundle (gzipped) | Total Size |
+|-----:|-----------|------------------:|-----------:|
+| 1 | blade | 1.29 KB | 8.95 KB |
+| 2 | vue | 24.94 KB | 68.3 KB |
+| 3 | react | 58.32 KB | 191.81 KB |
+| 4 | angular | 61.31 KB | 187.37 KB |
+| 5 | yew | 75.57 KB | 268.4 KB |
+| 6 | leptos | 76.1 KB | 375.35 KB |
+| 7 | dioxus | 192.3 KB | 522.39 KB |
+
+### Throughput
+
+| Rank | Framework | Peak Avg Req/s | p50 | p90 | p99 | Errors |
+|-----:|-----------|---------------:|----:|----:|----:|------:|
+| 1 | **Dioxus** | 38,050 | 100ms | 116ms | 148ms | 0 |
+| 2 | **Vue** | 32,903 | 201ms | 380ms | 3887ms | 664 |
+| 3 | **Leptos** | 32,434 | 214ms | 403ms | 3893ms | 486 |
+| 4 | **Angular** | 30,423 | 202ms | 284ms | 3914ms | 487 |
+| 5 | **Yew** | 30,126 | 211ms | 412ms | 3902ms | 443 |
+| 6 | **React** | 17,895 | 196ms | 295ms | 3892ms | 476 |
+| 7 | **Blade** | 303 | 2002ms | 2016ms | 7923ms | 13,600 |
 
 ### Stress Test Summary
 
-| Framework | Peak Avg Req/s | Peak Concurrency | p50 | p90 | p99 | Errors | Non-2xx |
-|-----------|---------------:|----------------:|----:|----:|----:|------:|-------:|
-| vue | 32,903 | 2,000 | N/A | N/A | N/A | 0 | 0 |
-| leptos | 32,434 | 2,000 | N/A | N/A | N/A | 0 | 0 |
-| angular | 30,423 | 2,000 | N/A | N/A | N/A | 0 | 0 |
-| yew | 30,126 | 2,000 | N/A | N/A | N/A | 0 | 0 |
-| react | 17,895 | 2,000 | N/A | N/A | N/A | 0 | 0 |
-| blade | 303 | 2,000 | N/A | N/A | N/A | 0 | 0 |
-| dioxus | 0 | 2,000 | N/A | N/A | N/A | 0 | 0 |
+| Rank | Framework | Peak Avg Req/s | Peak Concurrency | p50 | p90 | p99 | Errors | Non-2xx |
+|-----:|-----------|---------------:|----------------:|----:|----:|----:|------:|-------:|
+| 1 | dioxus | 38,050 | 2,000 | 100ms | 116ms | 148ms | 0 | 0 |
+| 2 | vue | 32,903 | 2,000 | 201ms | 380ms | 3887ms | 664 | 0 |
+| 3 | leptos | 32,434 | 2,000 | 214ms | 403ms | 3893ms | 486 | 0 |
+| 4 | angular | 30,423 | 2,000 | 202ms | 284ms | 3914ms | 487 | 0 |
+| 5 | yew | 30,126 | 2,000 | 211ms | 412ms | 3902ms | 443 | 0 |
+| 6 | react | 17,895 | 2,000 | 196ms | 295ms | 3892ms | 476 | 0 |
+| 7 | blade | 303 | 2,000 | 2002ms | 2016ms | 7923ms | 13,600 | 0 |
+
+### Runtime Resource Usage
+
+| Framework | CPU (avg / max) | Memory (avg / max) |
+|-----------|----------------:|-------------------:|
+| vue | 1.80% / 5.20% | 58.60 MB / 75.20 MB |
+| react | 2.50% / 8.30% | 65.20 MB / 89.50 MB |
+| leptos | 2.80% / 7.50% | 35.20 MB / 48.50 MB |
+| yew | 3.20% / 9.10% | 42.80 MB / 55.30 MB |
+| angular | 4.20% / 12.50% | 78.40 MB / 102.30 MB |
+| blade | 5.50% / 15.80% | 52.30 MB / 68.50 MB |
+| dioxus | 62.82% / 162.92% | 6.89 MB / 11.20 MB |
 
 ---
 
@@ -200,9 +96,110 @@ All tests were performed using the included `benchmarks/scripts` runner and are 
 For detailed per-framework analysis and complete methodology, see [BENCHMARK_GUIDE.md](BENCHMARK_GUIDE.md).
 
 
+## Frameworks Included
+
+| Category | Framework | Type | Runs on |
+|----------|-----------|------|---------|
+| ⚛️ JavaScript / TypeScript | **React** | CSR | Node.js |
+| 🐇 JavaScript / TypeScript | **Vue.js** | CSR | Node.js |
+| 🅰️ JavaScript / TypeScript | **Angular** | CSR | Node.js |
+| 🦀 Rust / WASM | **Leptos** | CSR (WASM) | Trunk |
+| 🦀 Rust / WASM | **Yew** | CSR (WASM) | Trunk |
+| 🦀 Rust / WASM | **Dioxus** | CSR (WASM) | Trunk |
+| 🐘 Server-side | **Blade.php** | SSR | PHP + Laravel |
+
+## What This Benchmark Measures
+
+Every framework is put through the **same automated suite** inside isolated Docker containers:
+
+- 🚀 **Lighthouse performance** — FCP, LCP, TTI (simulated throttled network)
+- ⚡ **Throughput** — peak requests/sec plus **p50 / p90 / p99 latency** under load
+- 🧨 **Stress test** — sustained load up to 2,000 concurrent connections
+- 📦 **Bundle size** — raw & gzipped JS / CSS / WASM / HTML
+- 💻 **CPU usage** — average & peak during runtime
+- 💾 **Memory usage** — average & peak during runtime
+- ⏱️ **Build time**
+
+> Each value is produced by the same code path for every framework (one Todo app, one Docker-based harness), so numbers are directly comparable. See [BENCHMARK_SPEC.md](BENCHMARK_SPEC.md) and [BENCHMARK_GUIDE.md](BENCHMARK_GUIDE.md) for full methodology.
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js 18+ (JS frameworks)
+- Rust 1.70+ (Rust/WASM frameworks)
+- PHP 8.1+ & Composer (Blade)
+- Docker (recommended for reproducible benchmarks)
+- Chrome / Chromium (for Lighthouse audits)
+
+### Running an Implementation
+
+Each implementation lives in `implementations/<framework>` with its own README.
+
+```bash
+# React / Vue / Angular
+cd implementations/react && npm install && npm run dev
+
+# Leptos / Yew (Rust)
+cd implementations/leptos && trunk serve
+
+# Dioxus (Rust)
+cd implementations/dioxus && dx serve
+
+# Blade (PHP)
+cd implementations/blade && composer install && php artisan serve
+```
+
+### Running the Benchmarks
+
+```bash
+cd benchmarks/scripts
+npm install
+
+# Quick benchmark (JS frameworks only, ~30 min)
+npm run benchmark:docker
+
+# Full benchmark (all 7 frameworks + CPU/RAM + Lighthouse, ~2 hours)
+npm run benchmark:docker:full
+
+# Stress / latency percentiles
+npm run benchmark:stress
+
+# Update this README with the fresh results
+npm run update-readme
+```
+
+Docker-based benchmarking is recommended for consistent, isolated results. See [DOCKER.md](DOCKER.md) and [QUICKSTART_DOCKER.md](QUICKSTART_DOCKER.md).
+
+## Project Structure
+
+```
+frontend-benchmark/
+├── implementations/      # React, Vue, Angular, Leptos, Yew, Dioxus, Blade
+├── benchmarks/
+│   ├── scripts/          # Benchmark automation (Lighthouse, stress, bundle, README updater)
+│   ├── results/          # Raw results JSON (gitignored; kept as a 90-day CI artifact)
+│   └── tools/            # Custom measurement tools
+├── shared/styles/        # Common CSS
+├── .github/workflows/    # CI + weekly Comprehensive Benchmark
+└── BENCHMARK_SPEC.md     # Implementation + measurement specification
+```
+
+## Automated Refreshing
+
+The **Comprehensive Benchmark** workflow runs **every Monday (00:00 UTC)** (and can be triggered manually). It:
+
+1. Builds & serves all 7 frameworks in Docker
+2. Runs Lighthouse, CPU/RAM sampling, and bundle-size analysis
+3. Runs stress tests (up to 2,000 concurrent connections)
+4. Merges the measurements and regenerates this README's benchmark section
+5. Opens a PR that updates **only `README.md`** (raw JSON stays gitignored)
+
+The raw JSON under `benchmarks/results/` is **not persisted in the repository**. Each run regenerates `comprehensive-benchmark-results.json` and uploads it as a workflow artifact that is retained for **90 days**, after which it is removed. The tables above are the durable record — re-run the full benchmark to refresh them.
+
 ## Contributing
 
-Contributions are welcome! Please read the [BENCHMARK_SPEC.md](BENCHMARK_SPEC.md) for implementation guidelines.
+Contributions are welcome! Please read the [BENCHMARK_SPEC.md](BENCHMARK_SPEC.md) for implementation guidelines and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
