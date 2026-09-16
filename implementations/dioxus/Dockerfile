@@ -1,25 +1,22 @@
 # Build stage
-FROM rust:1.86-slim AS builder
+FROM rust:latest AS builder
 
 # Install dependencies
 RUN apt-get update && \
-    apt-get install -y pkg-config libssl-dev wget && \
+    apt-get install -y pkg-config libssl-dev && \
     rm -rf /var/lib/apt/lists/*
 
-# Install wasm target and wasm-bindgen CLI (avoid building dioxus-cli to reduce heavy compile deps)
+# Install trunk and wasm target (same toolchain used for leptos and yew)
 RUN rustup target add wasm32-unknown-unknown && \
-    cargo install wasm-bindgen-cli --version 0.2.105
+    cargo install --locked trunk
 
 WORKDIR /app
 
 # Copy source files
 COPY . .
 
-# Build for production using cargo + wasm-bindgen
-RUN cargo build --release --target wasm32-unknown-unknown && \
-    wasm-bindgen --target web --out-dir dist target/wasm32-unknown-unknown/release/dioxus_todo.wasm && \
-    mkdir -p dist && \
-    cp index.html dist/
+# Build for production
+RUN trunk build --release
 
 # Production stage
 FROM nginx:alpine

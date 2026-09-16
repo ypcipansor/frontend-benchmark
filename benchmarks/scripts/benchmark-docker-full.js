@@ -295,7 +295,12 @@ function analyzeBundleSize(framework) {
     const sourcePath = framework.name === 'blade' ? '/var/www/html' : '/usr/share/nginx/html';
     execSync(`docker cp ${containerName}:${sourcePath} ${tempDir}/`, { stdio: 'inherit' });
     
-    const distPath = path.join(tempDir, 'html');
+    // `docker cp` puts the source directory contents either directly inside tempDir
+    // (when the destination did not exist) or under a child folder named after the
+    // source directory (e.g. .../html) when it did. Detect which layout we got and
+    // scan the correct root so bundle analysis is stable across environments.
+    const rootCandidates = [path.join(tempDir, 'html'), tempDir];
+    const distPath = rootCandidates.find(p => fs.existsSync(p) && fs.statSync(p).isDirectory());
     
     let totalJS = 0;
     let totalCSS = 0;
