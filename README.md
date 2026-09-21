@@ -11,81 +11,81 @@
 
 ## Benchmark Results
 
-*Last updated: 2026-09-16*
+*Last updated: 2026-09-21*
 
 > ⚠️ **Provenance:** Values below were collected across separate runs and environments and may not be directly comparable. A single, fresh, full 7-framework run in one environment is needed before rankings can be treated as authoritative.
 
 ### Quick Highlights
 
-- 🚀 **Top Lighthouse score:** Vue — **100/100**
-- 📦 **Smallest gzipped bundle:** blade — **1.29 KB**
-- ⚡ **Highest throughput:** Dioxus — **38,050 req/s** @ 2,000 connections
+- 📦 **Smallest gzipped bundle:** blade — **1.32 KB**
+- ⚡ **Highest throughput:** Dioxus — **23,708 req/s** @ 2,000 connections
 
-- Top throughput (top 3): Dioxus (38,050 req/s), Vue (32,903 req/s), Leptos (32,434 req/s)
-- Top Lighthouse (top 3): Vue (100/100), Leptos (100/100), Angular (100/100)
-- Smallest bundles (top 3): blade (1.29 KB), vue (24.94 KB), react (58.32 KB)
+**Notes:**
+- React: Lighthouse audit unavailable — re-run in idle conditions.
+- Vue: Lighthouse audit unavailable — re-run in idle conditions.
+- Angular: Lighthouse audit unavailable — re-run in idle conditions.
+- Leptos: Lighthouse audit unavailable — re-run in idle conditions.
+- Yew: Lighthouse audit unavailable — re-run in idle conditions.
+- Dioxus: Lighthouse audit unavailable — re-run in idle conditions.
+- Blade: Lighthouse audit unavailable — re-run in idle conditions.
+
+- Top throughput (top 3): Dioxus (23,708 req/s), Leptos (22,356 req/s), Angular (20,699 req/s)
+- Top Lighthouse (top 3): N/A
+- Smallest bundles (top 3): blade (1.32 KB), vue (26.02 KB), angular (62.83 KB)
 
 ---
 
 ### Lighthouse Performance
 
-| Rank | Framework | Perf | FCP | LCP | TTI |
-|-----:|-----------|-----:|----:|----:|----:|
-| 1 | vue | **100/100** | 1053ms | 1204ms | 1179ms |
-| 2 | leptos | **100/100** | 906ms | 1582ms | 1244ms |
-| 3 | angular | **100/100** | 1212ms | 1589ms | 1394ms |
-| 4 | yew | **100/100** | 903ms | 1579ms | 1612ms |
-| 5 | react | **100/100** | 1203ms | 1354ms | 1203ms |
-| 6 | dioxus | **98/100** | 1205ms | 2408ms | 2450ms |
-| 7 | blade | **87/100** | 751ms | 751ms | 751ms |
+_No valid Lighthouse results available. Re-run the comprehensive benchmark in idle conditions._
 
 ### Bundle Sizes (gzipped)
 
 | Rank | Framework | Bundle (gzipped) | Total Size |
 |-----:|-----------|------------------:|-----------:|
-| 1 | blade | 1.29 KB | 8.95 KB |
-| 2 | vue | 24.94 KB | 68.3 KB |
-| 3 | react | 58.32 KB | 191.81 KB |
-| 4 | angular | 61.31 KB | 187.37 KB |
-| 5 | yew | 75.57 KB | 268.4 KB |
-| 6 | leptos | 76.1 KB | 375.35 KB |
-| 7 | dioxus | 192.3 KB | 522.39 KB |
+| 1 | blade | 1.32 KB | 4.01 KB |
+| 2 | vue | 26.02 KB | 68.33 KB |
+| 3 | angular | 62.83 KB | 194.59 KB |
+| 4 | react | 68.18 KB | 220.9 KB |
+| 5 | yew | 78 KB | 280.1 KB |
+| 6 | leptos | 78.26 KB | 393.43 KB |
+| 7 | dioxus | 193.67 KB | 526.42 KB |
 
 ### Throughput
 
 | Rank | Framework | Peak Avg Req/s | p50 | p90 | p99 | Errors |
 |-----:|-----------|---------------:|----:|----:|----:|------:|
-| 1 | **Dioxus** | 38,050 | 100ms | 116ms | 148ms | 0 |
-| 2 | **Vue** | 32,903 | 201ms | 380ms | 3887ms | 664 |
-| 3 | **Leptos** | 32,434 | 214ms | 403ms | 3893ms | 486 |
-| 4 | **Angular** | 30,423 | 202ms | 284ms | 3914ms | 487 |
-| 5 | **Yew** | 30,126 | 211ms | 412ms | 3902ms | 443 |
-| 6 | **React** | 17,895 | 196ms | 295ms | 3892ms | 476 |
-| 7 | **Blade** | 303 | 2002ms | 2016ms | 7923ms | 13,600 |
+| 1 | **Dioxus** | 23,708 | 100ms | 1602ms | 3676ms | 0 |
+| 2 | **Leptos** | 22,356 | 89ms | 1664ms | 1956ms | 0 |
+| 3 | **Angular** | 20,699 | 93ms | 1634ms | 1879ms | 0 |
+| 4 | **Yew** | 18,589 | 88ms | 1716ms | 1890ms | 0 |
+| 5 | **React** | 18,284 | 87ms | 1670ms | 3666ms | 0 |
+| 6 | **Vue** | 17,536 | 92ms | 1719ms | 1934ms | 0 |
+| 7 | **Blade** | 344 | 1999ms | 2013ms | 7775ms | 3,700 |
 
 ### Stress Test Summary
 
 | Rank | Framework | Peak Avg Req/s | Peak Concurrency | p50 | p90 | p99 | Errors | Non-2xx |
 |-----:|-----------|---------------:|----------------:|----:|----:|----:|------:|-------:|
-| 1 | dioxus | 38,050 | 2,000 | 100ms | 116ms | 148ms | 0 | 0 |
-| 2 | vue | 32,903 | 2,000 | 201ms | 380ms | 3887ms | 664 | 0 |
-| 3 | leptos | 32,434 | 2,000 | 214ms | 403ms | 3893ms | 486 | 0 |
-| 4 | angular | 30,423 | 2,000 | 202ms | 284ms | 3914ms | 487 | 0 |
-| 5 | yew | 30,126 | 2,000 | 211ms | 412ms | 3902ms | 443 | 0 |
-| 6 | react | 17,895 | 2,000 | 196ms | 295ms | 3892ms | 476 | 0 |
-| 7 | blade | 303 | 2,000 | 2002ms | 2016ms | 7923ms | 13,600 | 0 |
+| 1 | dioxus | 23,708 | 2,000 | 100ms | 1602ms | 3676ms | 0 | 0 |
+| 2 | leptos | 22,356 | 2,000 | 89ms | 1664ms | 1956ms | 0 | 0 |
+| 3 | angular | 20,699 | 2,000 | 93ms | 1634ms | 1879ms | 0 | 0 |
+| 4 | yew | 18,589 | 2,000 | 88ms | 1716ms | 1890ms | 0 | 0 |
+| 5 | react | 18,284 | 2,000 | 87ms | 1670ms | 3666ms | 0 | 0 |
+| 6 | vue | 17,536 | 2,000 | 92ms | 1719ms | 1934ms | 0 | 0 |
+| 7 | blade | 344 | 2,000 | 1999ms | 2013ms | 7775ms | 3,700 | 0 |
 
 ### Runtime Resource Usage
 
 | Framework | CPU (avg / max) | Memory (avg / max) |
 |-----------|----------------:|-------------------:|
-| vue | 1.80% / 5.20% | 58.60 MB / 75.20 MB |
-| react | 2.50% / 8.30% | 65.20 MB / 89.50 MB |
-| leptos | 2.80% / 7.50% | 35.20 MB / 48.50 MB |
-| yew | 3.20% / 9.10% | 42.80 MB / 55.30 MB |
-| angular | 4.20% / 12.50% | 78.40 MB / 102.30 MB |
-| blade | 5.50% / 15.80% | 52.30 MB / 68.50 MB |
-| dioxus | 62.82% / 162.92% | 6.89 MB / 11.20 MB |
+| react | 0.00% / 0.00% | 4.86 MB / 4.90 MB |
+| vue | 0.00% / 0.00% | 4.86 MB / 5.00 MB |
+| angular | 0.00% / 0.00% | 5.20 MB / 5.38 MB |
+| leptos | 0.00% / 0.00% | 5.05 MB / 5.33 MB |
+| yew | 0.00% / 0.00% | 5.08 MB / 5.18 MB |
+| dioxus | 0.00% / 0.00% | 4.87 MB / 5.00 MB |
+| blade | 0.00% / 0.00% | 18.75 MB / 18.94 MB |
 
 ---
 
