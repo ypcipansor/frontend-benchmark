@@ -16,7 +16,8 @@
     "parity": "node parity-check.js",
     "pixel": "python3 pixel-parity.py",
     "optimize": "python3 optimize-images.py",
-    "montage": "node build-montage.js"
+    "montage": "node build-montage.js",
+    "test": "node tests/regression.test.js"
   },
   "keywords": [
     "frontend",

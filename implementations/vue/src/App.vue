@@ -41,6 +41,12 @@ const deleteTodo = (id) => {
   todos.value = todos.value.filter(todo => todo.id !== id);
 };
 
+// Toggle every todo: if all are complete, clear them; otherwise complete them all.
+const toggleAll = () => {
+  const allCompleted = todos.value.length > 0 && todos.value.every(todo => todo.completed);
+  todos.value = todos.value.map(todo => ({ ...todo, completed: !allCompleted }));
+};
+
 // Filter todos
 const filteredTodos = computed(() => {
   switch (filter.value) {
@@ -112,6 +118,13 @@ const handleKeyPress = (e) => {
         aria-label="Show completed todos"
       >
         Completed
+      </button>
+      <button
+        class="btn todo-toggle-all"
+        @click="toggleAll"
+        aria-label="Toggle all todos"
+      >
+        Toggle all
       </button>
     </div>
 

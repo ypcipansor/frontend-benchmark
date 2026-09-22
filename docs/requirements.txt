@@ -1,0 +1,7 @@
+# Python dependencies for the screenshot verification pipeline.
+# Install with:  python3 -m pip install -r docs/requirements.txt
+#
+# pillow  -> image decoding/cropping (optimize-images.py, pixel-parity.py)
+# numpy   -> fast per-pixel difference masking (pixel-parity.py)
+pillow>=10.0,<13
+numpy>=1.24,<3

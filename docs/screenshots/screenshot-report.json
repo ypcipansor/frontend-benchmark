@@ -5,6 +5,8 @@
     "stats": "67 items remaining",
     "renderedItems": 100,
     "emptyStateVisible": true,
+    "emptyStateItems": 0,
+    "deletedItems": 100,
     "labelRects": {
       "all": {
         "badge": [
@@ -92,6 +94,8 @@
     "stats": "67 items remaining",
     "renderedItems": 100,
     "emptyStateVisible": true,
+    "emptyStateItems": 0,
+    "deletedItems": 100,
     "labelRects": {
       "all": {
         "badge": [
@@ -179,6 +183,8 @@
     "stats": "67 items remaining",
     "renderedItems": 100,
     "emptyStateVisible": true,
+    "emptyStateItems": 0,
+    "deletedItems": 100,
     "labelRects": {
       "all": {
         "badge": [
@@ -266,6 +272,8 @@
     "stats": "67 items remaining",
     "renderedItems": 100,
     "emptyStateVisible": true,
+    "emptyStateItems": 0,
+    "deletedItems": 100,
     "labelRects": {
       "all": {
         "badge": [
@@ -353,6 +361,8 @@
     "stats": "67 items remaining",
     "renderedItems": 100,
     "emptyStateVisible": true,
+    "emptyStateItems": 0,
+    "deletedItems": 100,
     "labelRects": {
       "all": {
         "badge": [
@@ -440,6 +450,8 @@
     "stats": "67 items remaining",
     "renderedItems": 100,
     "emptyStateVisible": true,
+    "emptyStateItems": 0,
+    "deletedItems": 100,
     "labelRects": {
       "all": {
         "badge": [
@@ -527,6 +539,8 @@
     "stats": "67 items remaining",
     "renderedItems": 100,
     "emptyStateVisible": true,
+    "emptyStateItems": 0,
+    "deletedItems": 100,
     "labelRects": {
       "all": {
         "badge": [

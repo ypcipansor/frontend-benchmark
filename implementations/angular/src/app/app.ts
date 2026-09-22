@@ -75,6 +75,14 @@ export class App {
     this.todos.update(todos => todos.filter(todo => todo.id !== id));
   }
 
+  // Toggle every todo: if all are complete, clear them; otherwise complete them all.
+  toggleAll() {
+    this.todos.update(todos => {
+      const allCompleted = todos.length > 0 && todos.every(todo => todo.completed);
+      return todos.map(todo => ({ ...todo, completed: !allCompleted }));
+    });
+  }
+
   setFilter(filter: 'all' | 'active' | 'completed') {
     this.filter.set(filter);
   }

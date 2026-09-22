@@ -77,6 +77,15 @@ fn App() -> Element {
         }
     };
 
+    // Toggle every todo: if all are complete, clear them; otherwise complete them all.
+    let mut toggle_all = move || {
+        let all_completed = {
+            let list = todos.read();
+            !list.is_empty() && list.iter().all(|t| t.completed)
+        };
+        todos.write().iter_mut().for_each(|t| t.completed = !all_completed);
+    };
+
     rsx! {
         div { class: "todo-app",
             div { class: "todo-header",
@@ -124,6 +133,12 @@ fn App() -> Element {
                     onclick: move |_| filter.set(Filter::Completed),
                     "aria-label": "Show completed todos",
                     "Completed"
+                }
+                button {
+                    class: "btn todo-toggle-all",
+                    onclick: move |_| toggle_all(),
+                    "aria-label": "Toggle all todos",
+                    "Toggle all"
                 }
             }
 

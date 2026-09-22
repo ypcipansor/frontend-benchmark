@@ -3,11 +3,20 @@
  * Validate captured screenshots: reject blank/white/near-uniform images and
  * images whose rendering does not match the expected shared layout.
  *
+ * This is also a completeness check. Exactly seven frameworks with exactly five
+ * states each must be present, every state must match the entry recorded in
+ * screenshot-report.json, and the report itself must be error-free and show the
+ * expected item counts. A partial or stale capture therefore cannot pass.
+ *
  * Usage: node docs/verify-screenshots.js --dir docs/screenshots
  */
 const fs = require('fs');
 const path = require('path');
 const { PNG } = require('pngjs');
+
+const FRAMEWORKS = ['react', 'vue', 'angular', 'leptos', 'yew', 'dioxus', 'blade'];
+const STATES = ['all', 'active', 'completed', 'input-filled', 'empty-state'];
+const EXPECTED_REPORT = { renderedItems: 100, remaining: 67 };
 
 const EXPECTED = {
   // Card geometry in CSS pixels at a 1440x1024 viewport (2x DPR screenshots are
@@ -32,7 +41,6 @@ function byteStats(png) {
   const { width, height, data } = png;
   const colors = new Map();
   let white = 0;
-  let nonWhiteNonBg = 0;
   for (let i = 0; i < data.length; i += 4) {
     const r = data[i], g = data[i + 1], b = data[i + 2];
     const key = (r << 16) | (g << 8) | b;
@@ -84,20 +92,91 @@ function whiteBounds(png) {
   };
 }
 
+function loadReport(dir) {
+  const reportPath = path.join(dir, 'screenshot-report.json');
+  if (!fs.existsSync(reportPath)) return { error: `missing ${reportPath}` };
+  try {
+    return { report: JSON.parse(fs.readFileSync(reportPath, 'utf8')) };
+  } catch (e) {
+    return { error: `unreadable ${reportPath}: ${e.message}` };
+  }
+}
+
+function checkReport(dir) {
+  let failures = 0;
+  const fail = (msg) => { failures++; console.log(`  FAIL report${msg}`); };
+  const { report, error } = loadReport(dir);
+  if (error) {
+    fail(`: ${error}`);
+    return failures;
+  }
+  for (const fw of FRAMEWORKS) {
+    const entry = report[fw];
+    if (!entry) { fail(`: no entry for ${fw}`); continue; }
+    if (entry.failed || entry.error) { fail(`: ${fw} recorded ${entry.error}`); continue; }
+    const problems = [];
+    if (entry.renderedItems !== EXPECTED_REPORT.renderedItems)
+      problems.push(`renderedItems=${entry.renderedItems} expected ${EXPECTED_REPORT.renderedItems}`);
+    if (entry.emptyStateVisible !== true) problems.push('emptyStateVisible is not true');
+    if (entry.emptyStateItems !== 0) problems.push(`emptyStateItems=${entry.emptyStateItems} expected 0`);
+    if (Number((entry.stats || '').match(/\d+/)?.[0]) !== EXPECTED_REPORT.remaining)
+      problems.push(`stats "${entry.stats}" expected ${EXPECTED_REPORT.remaining} remaining`);
+    if (Array.isArray(entry.errors)) {
+      if (entry.errors.length) problems.push(`errors: ${entry.errors.join(' | ')}`);
+    } else problems.push('errors is not an array');
+    for (const state of STATES) {
+      const rects = entry.labelRects && entry.labelRects[state];
+      if (!rects || !rects.badge || !rects.footer)
+        problems.push(`labelRects missing for ${state}`);
+      if (!entry.screenshots || !entry.screenshots.includes(`${fw}/${state}.png`))
+        problems.push(`screenshots list missing ${fw}/${state}.png`);
+    }
+    if (problems.length) console.log(`  FAIL report ${fw}: ${problems.join('; ')}`), failures++;
+    else console.log(`  OK   report ${fw}`);
+  }
+  return failures;
+}
+
 function main() {
   const opts = parseArgs();
-  const frameworks = fs
-    .readdirSync(opts.dir, { withFileTypes: true })
-    .filter((d) => d.isDirectory())
-    .map((d) => d.name)
-    .sort();
+  if (!fs.existsSync(opts.dir)) {
+    console.error(`verify-screenshots.js: directory not found: ${opts.dir}`);
+    process.exit(1);
+  }
 
   let failures = 0;
   const t0 = Date.now();
-  for (const fw of frameworks) {
+
+  const entries = fs.readdirSync(opts.dir, { withFileTypes: true }).filter((d) => d.isDirectory());
+  const found = entries.map((d) => d.name).sort();
+  console.log(`Framework directories found: ${found.join(', ') || '(none)'}`);
+  const missingFw = FRAMEWORKS.filter((f) => !found.includes(f));
+  const extraFw = found.filter((f) => !FRAMEWORKS.includes(f));
+  if (missingFw.length) {
+    failures++;
+    console.log(`  FAIL missing framework directory: ${missingFw.join(', ')}`);
+  }
+  if (extraFw.length) {
+    failures++;
+    console.log(`  FAIL unexpected framework directory: ${extraFw.join(', ')}`);
+  }
+
+  for (const fw of FRAMEWORKS) {
     const dir = path.join(opts.dir, fw);
+    if (!fs.existsSync(dir)) continue;
     const files = fs.readdirSync(dir).filter((f) => f.endsWith('.png')).sort();
+    const missingState = STATES.filter((s) => !files.includes(`${s}.png`));
+    const extra = files.filter((f) => !STATES.includes(f.replace('.png', '')));
     console.log(`\n${fw} (${files.length} screenshots)`);
+    if (missingState.length) {
+      failures++;
+      console.log(`  FAIL missing state file(s): ${missingState.join(', ')}`);
+    }
+    if (extra.length) {
+      failures++;
+      console.log(`  FAIL unexpected file(s): ${extra.join(', ')}`);
+    }
+
     for (const f of files) {
       const file = path.join(dir, f);
       const png = readPng(file);
@@ -133,6 +212,10 @@ function main() {
       }
     }
   }
+
+  console.log('\n--- screenshot-report.json ---');
+  failures += checkReport(opts.dir);
+
   console.log(`\n${failures === 0 ? 'ALL SCREENSHOTS OK' : failures + ' SCREENSHOT(S) FAILED'} (${Date.now() - t0}ms)`);
   process.exit(failures === 0 ? 0 : 1);
 }

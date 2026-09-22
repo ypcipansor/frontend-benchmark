@@ -134,6 +134,20 @@ body {
   border-color: #667eea;
 }
 
+/* Same box as .filter-btn so the filters row keeps its height and the card
+   geometry stays identical across every implementation. */
+.todo-toggle-all {
+  padding: 8px 16px;
+  font-size: 0.9rem;
+  background: #f5f5f5;
+  color: #666;
+  border: 2px solid transparent;
+}
+
+.todo-toggle-all:hover {
+  background: #e8e8e8;
+}
+
 .todo-stats {
   text-align: center;
   color: #666;

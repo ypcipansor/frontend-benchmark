@@ -47,6 +47,13 @@
     >
       Completed
     </button>
+    <button
+      class="btn todo-toggle-all"
+      (click)="toggleAll()"
+      aria-label="Toggle all todos"
+    >
+      Toggle all
+    </button>
   </div>
 
   <div class="todo-stats"><span>{{ remainingCount() }}</span> {{ remainingCount() === 1 ? 'item' : 'items' }} remaining</div>

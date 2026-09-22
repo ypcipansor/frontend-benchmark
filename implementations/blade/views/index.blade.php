@@ -55,6 +55,13 @@
             >
                 Completed
             </button>
+            <button
+                class="btn todo-toggle-all"
+                onclick="toggleAll()"
+                aria-label="Toggle all todos"
+            >
+                Toggle all
+            </button>
         </div>
 
         <div class="todo-stats" id="todo-stats">
@@ -134,6 +141,13 @@
         // Delete todo
         function deleteTodo(id) {
             todos = todos.filter(t => t.id !== id);
+            render();
+        }
+
+        // Toggle every todo: if all are complete, clear them; otherwise complete them all.
+        function toggleAll() {
+            const allCompleted = todos.length > 0 && todos.every(t => t.completed);
+            todos = todos.map(t => ({ ...t, completed: !allCompleted }));
             render();
         }
 

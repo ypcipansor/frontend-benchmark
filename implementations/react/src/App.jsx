@@ -41,6 +41,12 @@ function App() {
     setTodos(todos.filter(todo => todo.id !== id));
   };
 
+  // Toggle every todo: if all are complete, clear them; otherwise complete them all.
+  const toggleAll = () => {
+    const allCompleted = todos.length > 0 && todos.every(todo => todo.completed);
+    setTodos(todos.map(todo => ({ ...todo, completed: !allCompleted })));
+  };
+
   // Filter todos
   const filteredTodos = useMemo(() => {
     switch (filter) {
@@ -114,10 +120,17 @@ function App() {
         >
           Completed
         </button>
+        <button
+          className="btn todo-toggle-all"
+          onClick={toggleAll}
+          aria-label="Toggle all todos"
+        >
+          Toggle all
+        </button>
       </div>
 
       <div className="todo-stats">
-        {remainingCount} {remainingCount === 1 ? 'item' : 'items'} remaining
+        <span>{remainingCount}</span>{` ${remainingCount === 1 ? 'item' : 'items'} remaining`}
       </div>
 
       {filteredTodos.length === 0 ? (

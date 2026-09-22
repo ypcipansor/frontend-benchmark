@@ -28,7 +28,7 @@ const STATES = [
   ['active', 'Active filter'],
   ['completed', 'Completed filter'],
   ['input-filled', 'Input with text'],
-  ['empty-state', 'Empty state after deleting completed'],
+  ['empty-state', 'Empty state after deleting every todo'],
 ];
 
 function buildHtml(state, label) {
@@ -72,39 +72,50 @@ function buildHtml(state, label) {
 }
 
 (async () => {
-  const browser = await chromium.launch({ args: ['--no-sandbox'] });
   const tmp = path.join(ROOT, 'docs', '.gallery-tmp.html');
-  for (const [state, label] of STATES) {
-    fs.writeFileSync(tmp, buildHtml(state, label));
-    const page = await (await browser.newContext({
-      viewport: { width: 1800, height: 900 },
-      deviceScaleFactor: 1,
-    })).newPage();
-    await page.goto('file://' + tmp, { waitUntil: 'networkidle' });
-    await page.waitForTimeout(500);
-    const broken = await page.evaluate(() =>
-      Array.from(document.images)
-        .filter((img) => !img.complete || img.naturalWidth === 0)
-        .map((img) => img.getAttribute('src'))
-    );
-    if (broken.length) {
-      throw new Error(`montage ${state}: ${broken.length} image(s) failed to load: ${broken.join(', ')}`);
+  let browser;
+  try {
+    browser = await chromium.launch({ args: ['--no-sandbox'] });
+    for (const [state, label] of STATES) {
+      fs.writeFileSync(tmp, buildHtml(state, label));
+      const ctx = await browser.newContext({
+        viewport: { width: 1800, height: 900 },
+        deviceScaleFactor: 1,
+      });
+      try {
+        const page = await ctx.newPage();
+        await page.goto('file://' + tmp, { waitUntil: 'networkidle' });
+        await page.waitForTimeout(500);
+        const broken = await page.evaluate(() =>
+          Array.from(document.images)
+            .filter((img) => !img.complete || img.naturalWidth === 0)
+            .map((img) => img.getAttribute('src'))
+        );
+        if (broken.length) {
+          throw new Error(`montage ${state}: ${broken.length} image(s) failed to load: ${broken.join(', ')}`);
+        }
+        // Every figure must have rendered the full card, not a collapsed placeholder.
+        const shortFigures = await page.evaluate(() =>
+          Array.from(document.querySelectorAll('figure'))
+            .filter((f) => f.querySelector('img').getBoundingClientRect().height < 200)
+            .map((f) => f.querySelector('figcaption').textContent)
+        );
+        if (shortFigures.length) {
+          throw new Error(`montage ${state}: card too small for ${shortFigures.join(', ')}`);
+        }
+        const out = path.join(OUT, `comparison-${state}.png`);
+        await page.screenshot({ path: out, fullPage: true });
+        const kb = (fs.statSync(out).size / 1024).toFixed(0);
+        console.log(`wrote comparison-${state}.png (${kb} KB)`);
+      } finally {
+        await ctx.close();
+      }
     }
-    // Every figure must have rendered the full card, not a collapsed placeholder.
-    const shortFigures = await page.evaluate(() =>
-      Array.from(document.querySelectorAll('figure'))
-        .filter((f) => f.querySelector('img').getBoundingClientRect().height < 200)
-        .map((f) => f.querySelector('figcaption').textContent)
-    );
-    if (shortFigures.length) {
-      throw new Error(`montage ${state}: card too small for ${shortFigures.join(', ')}`);
-    }
-    const out = path.join(OUT, `comparison-${state}.png`);
-    await page.screenshot({ path: out, fullPage: true });
-    const kb = (fs.statSync(out).size / 1024).toFixed(0);
-    console.log(`wrote comparison-${state}.png (${kb} KB)`);
-    await page.context().close();
+  } finally {
+    if (browser) await browser.close();
+    fs.rmSync(tmp, { force: true });
   }
-  fs.unlinkSync(tmp);
-  await browser.close();
-})();
+})().catch((e) => {
+  console.error(`build-montage.js: ${e.message}`);
+  process.exit(1);
+});

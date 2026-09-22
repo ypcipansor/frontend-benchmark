@@ -51,18 +51,25 @@ Visual parity is enforced, not optional. Start your dev server on its benchmark 
 
 ```bash
 cd docs
-npm install
+npm ci
 npx playwright install chromium
+python3 -m pip install -r requirements.txt
 
+npm run capture     # capture all UI states (fails non-zero on any error)
+npm run verify      # reject blank, white, mis-sized or incomplete screenshots
 npm run parity      # DOM, geometry, text and stats must match the other frameworks
-npm run capture     # capture all UI states
-npm run verify      # reject blank, white, mis-sized or error-free screenshots
 npm run pixel       # pixel-diff every state against the reference
 npm run optimize    # card-cropped JPEGs for the README
 npm run montage     # side-by-side comparison montages
+npm test            # regression tests for the tooling itself
 ```
 
-A screenshot that is blank, entirely white, not showing the card, or reporting console errors is treated as a failure — fix the implementation rather than the expectation. `npm run pixel` is stricter still: it fails on any pixel difference outside the two regions that hold the framework name, so subpixel text shaping must match too.
+A screenshot that is blank, entirely white, not showing the card, or produced by a
+capture that logged console errors is treated as a failure — fix the implementation
+rather than the expectation. `npm run verify` rejects captures that have console
+errors; it does not reject error-free ones. `npm run pixel` is stricter still: it
+fails on any pixel difference outside the two regions that hold the framework name,
+so subpixel text shaping must match too.
 
 
 ### Reporting Issues

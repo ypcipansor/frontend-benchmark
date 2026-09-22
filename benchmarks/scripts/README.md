@@ -128,10 +128,11 @@ Performance numbers mean nothing if the frameworks are not rendering the same ap
 
 ```bash
 cd ../docs
-npm install && npx playwright install chromium
+npm ci && npx playwright install chromium
+python3 -m pip install -r requirements.txt
+npm run capture     # capture all five UI states (fails non-zero on any error)
+npm run verify      # reject blank, white, mis-sized or incomplete screenshots
 npm run parity      # assert identical DOM, geometry, content and stats
-npm run capture     # capture all five UI states
-npm run verify      # reject blank, white, mis-sized or error-free screenshots
 npm run pixel       # pixel-diff every state against the reference
 ```
 

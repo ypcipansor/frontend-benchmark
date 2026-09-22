@@ -46,7 +46,7 @@ The app is a single page with five distinct rendered views. **All five are captu
 
 ## Visual parity — every framework, every state
 
-This is the heart of the benchmark: the same screen, rendered by seven different runtimes. Every montage below was assembled from live captures and then checked automatically (see [Verifying visual parity](#verifying-visual-parity)) for geometry, content, pixel equality, and console errors.
+This is the heart of the benchmark: the same screen, rendered by seven different runtimes. Every montage below was assembled from live captures and then checked automatically (see [Verifying visual parity](#verifying-visual-parity)): live DOM/geometry/state parity, pixel equality of the saved captures, and a clean console.
 
 ### All — 100 todos, 67 remaining
 
@@ -212,16 +212,24 @@ The screenshots above are not hand-picked — they are produced and validated by
 
 ```bash
 cd docs
-npm install                 # Playwright + pngjs
+npm ci                      # Playwright + pngjs, from the committed lockfile
 npx playwright install chromium
+python3 -m pip install -r requirements.txt   # NumPy + Pillow
 
-# The seven dev servers must be running on their fixed ports (see below).
-npm run capture             # 1. capture all 35 screenshots
-npm run verify              # 2. reject blank / white / mis-sized captures
-npm run parity              # 3. assert DOM, geometry, state and pixel equality
-npm run optimize            # 4. card-cropped JPEGs for this README
-npm run montage             # 5. side-by-side comparison montages
+bash scripts/start-servers.sh   # all seven dev servers on their fixed ports
+npm run capture             # 1. capture all 35 screenshots (fails non-zero on any error)
+npm run verify              # 2. reject blank / white / mis-sized / incomplete captures
+npm run parity              # 3. assert identical DOM, geometry and interaction state (live)
+npm run pixel               # 4. diff every state against the React reference
+npm run optimize            # 5. card-cropped JPEGs for this README
+npm run montage             # 6. side-by-side comparison montages
+npm test                    # 7. regression tests for the tooling's failure modes
+bash scripts/stop-servers.sh
 ```
+
+`parity` and `pixel` are separate gates: `parity` drives the live servers and
+compares DOM, geometry and state; `pixel` compares the saved captures. The
+pipeline runs `capture → verify → parity → pixel → optimize → montage`.
 
 The code guarantees fairness in five independent ways:
 
