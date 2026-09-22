@@ -55,6 +55,11 @@ server running. `npm run parity` and `npm run capture` need all seven servers up
 - **Pixel parity is strict.** The only tolerated differences are the header badge
   and the footer, and even those masks come from live element geometry recorded
   during capture — not hardcoded rows. Anything else must be byte-identical.
+- **Never hardcode the card height.** Text metrics differ per platform: the same
+  capture is 792px tall on the Ubuntu CI runner and 796px on this sandbox. The
+  verifier therefore checks left/width exactly and, for height, requires the seven
+  frameworks to agree with each other within a few pixels plus a generous absolute
+  band — a per-framework divergence still fails without pinning one OS metric.
 - **Keep `.todo-stats` segmented the same way everywhere.** Wrap the remaining
   count in its own `<span>`, and keep the `" items remaining"` suffix as a single
   text node after it. Merging the digits and the suffix into one text node, or

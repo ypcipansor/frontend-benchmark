@@ -20,10 +20,18 @@ const EXPECTED_REPORT = { renderedItems: 100, remaining: 67 };
 
 const EXPECTED = {
   // Card geometry in CSS pixels at a 1440x1024 viewport (2x DPR screenshots are
-  // scaled by the verifier). Every framework must match.
+  // scaled by the verifier). The left edge and width are driven by fixed CSS and
+  // must match exactly. Height depends on font metrics, which vary across
+  // platforms (the same capture is 792px on the Ubuntu CI runner and 796px on
+  // macOS), so height is checked for cross-framework agreement plus a generous
+  // absolute band instead of a single hardcoded value.
   cardLeft: 420,
   cardWidth: 600,
   viewportWidth: 1440,
+  populatedHeight: [700, 900],
+  emptyHeight: [400, 700],
+  // All frameworks run on the same host, so their heights must agree closely.
+  heightAgreement: 6,
 };
 
 function parseArgs() {
@@ -161,6 +169,7 @@ function main() {
     console.log(`  FAIL unexpected framework directory: ${extraFw.join(', ')}`);
   }
 
+  const cardHeights = {}; // framework -> { state: cssHeight }
   for (const fw of FRAMEWORKS) {
     const dir = path.join(opts.dir, fw);
     if (!fs.existsSync(dir)) continue;
@@ -177,6 +186,7 @@ function main() {
       console.log(`  FAIL unexpected file(s): ${extra.join(', ')}`);
     }
 
+    cardHeights[fw] = {};
     for (const f of files) {
       const file = path.join(dir, f);
       const png = readPng(file);
@@ -195,13 +205,14 @@ function main() {
         const scale = png.width / EXPECTED.viewportWidth;
         const leftCss = Math.round(b.left / scale);
         const widthCss = Math.round(b.width / scale);
-        geo = `card ${leftCss},${widthCss}`;
-        const isEmpty = f.startsWith('empty');
-        const expH = isEmpty ? 562 : 796;
         const hCss = Math.round(b.height / scale);
+        geo = `card ${leftCss},${widthCss} h${hCss}`;
+        const isEmpty = f.startsWith('empty');
+        const [lo, hi] = isEmpty ? EXPECTED.emptyHeight : EXPECTED.populatedHeight;
         if (leftCss !== EXPECTED.cardLeft) problems.push(`card left ${leftCss} != ${EXPECTED.cardLeft}`);
         if (widthCss !== EXPECTED.cardWidth) problems.push(`card width ${widthCss} != ${EXPECTED.cardWidth}`);
-        if (Math.abs(hCss - expH) > 3) problems.push(`card height ${hCss} != expected ~${expH}`);
+        if (hCss < lo || hCss > hi) problems.push(`card height ${hCss} outside ${lo}..${hi}`);
+        cardHeights[fw][f.replace('.png', '')] = hCss;
       }
 
       if (problems.length) {
@@ -210,6 +221,22 @@ function main() {
       } else {
         console.log(`  OK   ${f}  (colors=${st.uniqueColors}, ${geo})`);
       }
+    }
+  }
+
+  // Height is font-metric dependent, but every framework runs on the same host in
+  // the same step, so their cards must agree with each other. This catches a
+  // framework whose CSS/layout diverges without hardcoding one platform's metric.
+  const statesPresent = STATES.filter((s) => FRAMEWORKS.every((fw) => cardHeights[fw] && cardHeights[fw][s] !== undefined));
+  for (const state of statesPresent) {
+    const heights = FRAMEWORKS.filter((fw) => cardHeights[fw] && cardHeights[fw][state] !== undefined)
+      .map((fw) => ({ fw, h: cardHeights[fw][state] }));
+    const min = Math.min(...heights.map((x) => x.h));
+    const max = Math.max(...heights.map((x) => x.h));
+    if (max - min > EXPECTED.heightAgreement) {
+      failures++;
+      const detail = heights.map((x) => `${x.fw}=${x.h}`).join(', ');
+      console.log(`\n  FAIL card height disagrees across frameworks for ${state}: ${detail}`);
     }
   }
 

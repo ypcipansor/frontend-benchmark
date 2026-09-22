@@ -152,6 +152,45 @@ function writeShots(dir, { omitRects = false, frameworks = null } = {}) {
   return report;
 }
 
+// A synthetic 1440x1024 screenshot with a non-white backdrop and a white card of
+// the given height. Used to prove the verifier's cross-framework height invariant
+// fails when one framework's layout diverges, without depending on a font metric.
+function writeSyntheticShot(file, cardHeight) {
+  const { PNG } = require('pngjs');
+  const W = 1440;
+  const H = 1024;
+  const png = new PNG({ width: W, height: H });
+  const cardLeft = 420;
+  const cardWidth = 600;
+  const cardTop = 114;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 4;
+      const inCard = x >= cardLeft && x < cardLeft + cardWidth && y >= cardTop && y < cardTop + cardHeight;
+      if (inCard) {
+        // Mostly white, with scattered colour so the card is not uniform and the
+        // frame has plenty of unique colours (like a real populated capture).
+        if ((x * 13 + y * 29) % 97 === 0) {
+          png.data[i] = 120;
+          png.data[i + 1] = 60;
+          png.data[i + 2] = 200;
+        } else {
+          png.data[i] = 255;
+          png.data[i + 1] = 255;
+          png.data[i + 2] = 255;
+        }
+      } else {
+        // Non-white gradient backdrop, like the real screenshots.
+        png.data[i] = 235;
+        png.data[i + 1] = 240;
+        png.data[i + 2] = 248;
+      }
+      png.data[i + 3] = 255;
+    }
+  }
+  fs.writeFileSync(file, PNG.sync.write(png));
+}
+
 (async () => {
   console.log('Regression tests\n');
   fs.mkdirSync(path.join(DOCS, 'logs'), { recursive: true });
@@ -286,7 +325,21 @@ function writeShots(dir, { omitRects = false, frameworks = null } = {}) {
       assert(res.status === 0, `exit ${res.status}: ${res.stdout}`);
     });
   }
-
+  {
+    // One framework's card is 40px shorter than the rest. The verifier no longer
+    // pins an absolute height (font metrics differ per platform), but it must
+    // still catch a layout that diverges from every other framework.
+    const dir = tmpDir('verify-height');
+    writeShots(dir);
+    for (const s of ['all', 'active', 'completed', 'input-filled']) {
+      writeSyntheticShot(path.join(dir, 'react', `${s}.png`), 700);
+    }
+    await test('verify fails when one framework card height diverges', () => {
+      const res = run('node', [path.join(DOCS, 'verify-screenshots.js'), '--dir', dir]);
+      assert(res.status !== 0, 'expected non-zero exit');
+      assert(/height disagrees/.test(res.stdout), `not reported: ${res.stdout}`);
+    });
+  }
   // --- 8: pixel checker robustness ----------------------------------------
   console.log('\npixel checker robustness');
   {
