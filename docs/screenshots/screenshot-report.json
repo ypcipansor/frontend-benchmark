@@ -1,0 +1,611 @@
+{
+  "react": {
+    "url": "http://127.0.0.1:4001/",
+    "badge": "React",
+    "stats": "67 items remaining",
+    "renderedItems": 100,
+    "emptyStateVisible": true,
+    "labelRects": {
+      "all": {
+        "badge": [
+          686,
+          200,
+          69,
+          28
+        ],
+        "footer": [
+          450,
+          843,
+          540,
+          37
+        ]
+      },
+      "active": {
+        "badge": [
+          686,
+          200,
+          69,
+          28
+        ],
+        "footer": [
+          450,
+          843,
+          540,
+          37
+        ]
+      },
+      "completed": {
+        "badge": [
+          686,
+          200,
+          69,
+          28
+        ],
+        "footer": [
+          450,
+          843,
+          540,
+          37
+        ]
+      },
+      "input-filled": {
+        "badge": [
+          686,
+          200,
+          69,
+          28
+        ],
+        "footer": [
+          450,
+          843,
+          540,
+          37
+        ]
+      },
+      "empty-state": {
+        "badge": [
+          686,
+          317,
+          69,
+          28
+        ],
+        "footer": [
+          450,
+          726,
+          540,
+          37
+        ]
+      }
+    },
+    "errors": [],
+    "screenshots": [
+      "react/all.png",
+      "react/active.png",
+      "react/completed.png",
+      "react/input-filled.png",
+      "react/empty-state.png"
+    ]
+  },
+  "vue": {
+    "url": "http://127.0.0.1:4002/",
+    "badge": "Vue.js",
+    "stats": "67 items remaining",
+    "renderedItems": 100,
+    "emptyStateVisible": true,
+    "labelRects": {
+      "all": {
+        "badge": [
+          685,
+          200,
+          71,
+          28
+        ],
+        "footer": [
+          450,
+          843,
+          540,
+          37
+        ]
+      },
+      "active": {
+        "badge": [
+          685,
+          200,
+          71,
+          28
+        ],
+        "footer": [
+          450,
+          843,
+          540,
+          37
+        ]
+      },
+      "completed": {
+        "badge": [
+          685,
+          200,
+          71,
+          28
+        ],
+        "footer": [
+          450,
+          843,
+          540,
+          37
+        ]
+      },
+      "input-filled": {
+        "badge": [
+          685,
+          200,
+          71,
+          28
+        ],
+        "footer": [
+          450,
+          843,
+          540,
+          37
+        ]
+      },
+      "empty-state": {
+        "badge": [
+          685,
+          317,
+          71,
+          28
+        ],
+        "footer": [
+          450,
+          726,
+          540,
+          37
+        ]
+      }
+    },
+    "errors": [],
+    "screenshots": [
+      "vue/all.png",
+      "vue/active.png",
+      "vue/completed.png",
+      "vue/input-filled.png",
+      "vue/empty-state.png"
+    ]
+  },
+  "angular": {
+    "url": "http://127.0.0.1:4003/",
+    "badge": "Angular",
+    "stats": "67 items remaining",
+    "renderedItems": 100,
+    "emptyStateVisible": true,
+    "labelRects": {
+      "all": {
+        "badge": [
+          678,
+          200,
+          84,
+          28
+        ],
+        "footer": [
+          450,
+          843,
+          540,
+          37
+        ]
+      },
+      "active": {
+        "badge": [
+          678,
+          200,
+          84,
+          28
+        ],
+        "footer": [
+          450,
+          843,
+          540,
+          37
+        ]
+      },
+      "completed": {
+        "badge": [
+          678,
+          200,
+          84,
+          28
+        ],
+        "footer": [
+          450,
+          843,
+          540,
+          37
+        ]
+      },
+      "input-filled": {
+        "badge": [
+          678,
+          200,
+          84,
+          28
+        ],
+        "footer": [
+          450,
+          843,
+          540,
+          37
+        ]
+      },
+      "empty-state": {
+        "badge": [
+          678,
+          317,
+          84,
+          28
+        ],
+        "footer": [
+          450,
+          726,
+          540,
+          37
+        ]
+      }
+    },
+    "errors": [],
+    "screenshots": [
+      "angular/all.png",
+      "angular/active.png",
+      "angular/completed.png",
+      "angular/input-filled.png",
+      "angular/empty-state.png"
+    ]
+  },
+  "leptos": {
+    "url": "http://127.0.0.1:4004/",
+    "badge": "Leptos",
+    "stats": "67 items remaining",
+    "renderedItems": 100,
+    "emptyStateVisible": true,
+    "labelRects": {
+      "all": {
+        "badge": [
+          682,
+          200,
+          76,
+          28
+        ],
+        "footer": [
+          450,
+          843,
+          540,
+          37
+        ]
+      },
+      "active": {
+        "badge": [
+          682,
+          200,
+          76,
+          28
+        ],
+        "footer": [
+          450,
+          843,
+          540,
+          37
+        ]
+      },
+      "completed": {
+        "badge": [
+          682,
+          200,
+          76,
+          28
+        ],
+        "footer": [
+          450,
+          843,
+          540,
+          37
+        ]
+      },
+      "input-filled": {
+        "badge": [
+          682,
+          200,
+          76,
+          28
+        ],
+        "footer": [
+          450,
+          843,
+          540,
+          37
+        ]
+      },
+      "empty-state": {
+        "badge": [
+          682,
+          317,
+          76,
+          28
+        ],
+        "footer": [
+          450,
+          726,
+          540,
+          37
+        ]
+      }
+    },
+    "errors": [],
+    "screenshots": [
+      "leptos/all.png",
+      "leptos/active.png",
+      "leptos/completed.png",
+      "leptos/input-filled.png",
+      "leptos/empty-state.png"
+    ]
+  },
+  "yew": {
+    "url": "http://127.0.0.1:4005/",
+    "badge": "Yew",
+    "stats": "67 items remaining",
+    "renderedItems": 100,
+    "emptyStateVisible": true,
+    "labelRects": {
+      "all": {
+        "badge": [
+          692,
+          200,
+          56,
+          28
+        ],
+        "footer": [
+          450,
+          843,
+          540,
+          37
+        ]
+      },
+      "active": {
+        "badge": [
+          692,
+          200,
+          56,
+          28
+        ],
+        "footer": [
+          450,
+          843,
+          540,
+          37
+        ]
+      },
+      "completed": {
+        "badge": [
+          692,
+          200,
+          56,
+          28
+        ],
+        "footer": [
+          450,
+          843,
+          540,
+          37
+        ]
+      },
+      "input-filled": {
+        "badge": [
+          692,
+          200,
+          56,
+          28
+        ],
+        "footer": [
+          450,
+          843,
+          540,
+          37
+        ]
+      },
+      "empty-state": {
+        "badge": [
+          692,
+          317,
+          56,
+          28
+        ],
+        "footer": [
+          450,
+          726,
+          540,
+          37
+        ]
+      }
+    },
+    "errors": [],
+    "screenshots": [
+      "yew/all.png",
+      "yew/active.png",
+      "yew/completed.png",
+      "yew/input-filled.png",
+      "yew/empty-state.png"
+    ]
+  },
+  "dioxus": {
+    "url": "http://127.0.0.1:4006/",
+    "badge": "Dioxus",
+    "stats": "67 items remaining",
+    "renderedItems": 100,
+    "emptyStateVisible": true,
+    "labelRects": {
+      "all": {
+        "badge": [
+          682,
+          200,
+          77,
+          28
+        ],
+        "footer": [
+          450,
+          843,
+          540,
+          37
+        ]
+      },
+      "active": {
+        "badge": [
+          682,
+          200,
+          77,
+          28
+        ],
+        "footer": [
+          450,
+          843,
+          540,
+          37
+        ]
+      },
+      "completed": {
+        "badge": [
+          682,
+          200,
+          77,
+          28
+        ],
+        "footer": [
+          450,
+          843,
+          540,
+          37
+        ]
+      },
+      "input-filled": {
+        "badge": [
+          682,
+          200,
+          77,
+          28
+        ],
+        "footer": [
+          450,
+          843,
+          540,
+          37
+        ]
+      },
+      "empty-state": {
+        "badge": [
+          682,
+          317,
+          77,
+          28
+        ],
+        "footer": [
+          450,
+          726,
+          540,
+          37
+        ]
+      }
+    },
+    "errors": [],
+    "screenshots": [
+      "dioxus/all.png",
+      "dioxus/active.png",
+      "dioxus/completed.png",
+      "dioxus/input-filled.png",
+      "dioxus/empty-state.png"
+    ]
+  },
+  "blade": {
+    "url": "http://127.0.0.1:4007/",
+    "badge": "Blade.php",
+    "stats": "67 items remaining",
+    "renderedItems": 100,
+    "emptyStateVisible": true,
+    "labelRects": {
+      "all": {
+        "badge": [
+          670,
+          200,
+          101,
+          28
+        ],
+        "footer": [
+          450,
+          843,
+          540,
+          37
+        ]
+      },
+      "active": {
+        "badge": [
+          670,
+          200,
+          101,
+          28
+        ],
+        "footer": [
+          450,
+          843,
+          540,
+          37
+        ]
+      },
+      "completed": {
+        "badge": [
+          670,
+          200,
+          101,
+          28
+        ],
+        "footer": [
+          450,
+          843,
+          540,
+          37
+        ]
+      },
+      "input-filled": {
+        "badge": [
+          670,
+          200,
+          101,
+          28
+        ],
+        "footer": [
+          450,
+          843,
+          540,
+          37
+        ]
+      },
+      "empty-state": {
+        "badge": [
+          670,
+          317,
+          101,
+          28
+        ],
+        "footer": [
+          450,
+          726,
+          540,
+          37
+        ]
+      }
+    },
+    "errors": [],
+    "screenshots": [
+      "blade/all.png",
+      "blade/active.png",
+      "blade/completed.png",
+      "blade/input-filled.png",
+      "blade/empty-state.png"
+    ]
+  }
+}

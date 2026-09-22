@@ -1,82 +1,111 @@
 # Blade.php Todo Implementation
 
-This is the Blade.php implementation of the frontend benchmark Todo application.
+Blade.php implementation of the shared benchmark Todo app. See the [project README](../../README.md) for the specification and the cross-framework [parity checks](../../docs/parity-check.js).
 
-**Note:** This is a simplified implementation using PHP and vanilla JavaScript. A full Laravel Blade implementation would require server-side rendering and routing.
+## Screenshots
 
-## Tech Stack
+All five views of the Blade.php build, captured from its own dev server. They are identical to every other implementation apart from the framework name in the badge and footer.
 
-- PHP 8.1+
-- Vanilla JavaScript
-- CSS
+| All (100 / 67 remaining) | Active (67) | Completed (33) | Input filled | Empty state |
+|:---:|:---:|:---:|:---:|:---:|
+| ![All](../../docs/images/blade/all.jpg) | ![Active](../../docs/images/blade/active.jpg) | ![Completed](../../docs/images/blade/completed.jpg) | ![Input-filled](../../docs/images/blade/input-filled.jpg) | ![Empty state](../../docs/images/blade/empty-state.jpg) |
 
-## Features
+Optimized crops live in [`docs/images/blade/`](../../docs/images/blade/); the full-resolution 1440×1024 PNGs are in [`docs/screenshots/blade/`](../../docs/screenshots/blade/). The [project README](../../README.md) shows the same five views side by side across all seven frameworks.
 
-- Add, toggle, and delete todos
-- Filter todos (All, Active, Completed)
-- Display remaining todo count
-- Pre-populated with 100 todos
-- Responsive design
-- Client-side state management
+## Tech stack
 
-## Getting Started
+| | |
+|---|---|
+| Templating | Laravel Blade, used standalone via `illuminate/view` 11 |
+| Runtime | PHP 8.2+ |
+| Interactivity | Vanilla JavaScript |
+| Dependency manager | Composer |
 
-### Prerequisites
+This is the Blade **templating engine** running on its own, not a full Laravel application. It is the only server-rendered implementation in the benchmark, which is exactly what makes the comparison interesting.
 
-- PHP 8.1+
-- A web server (Apache, Nginx, or PHP built-in server)
-
-### Development
-
-Using PHP built-in server:
+## Prerequisites
 
 ```bash
-php -S localhost:8000 -t .
+composer install
 ```
 
-Open [http://localhost:8000](http://localhost:8000) in your browser.
+If `vendor/` is missing the entry point exits with a clear message rather than a fatal error:
 
-### Production Deployment
+```
+Please run "composer install" in implementations/blade directory.
+```
 
-For production, use a proper web server like Apache or Nginx configured for PHP.
+## Running it
 
-## Implementation Notes
+```bash
+composer install
+php -S 127.0.0.1:4007 -t .        # http://127.0.0.1:4007
+```
 
-This implementation uses vanilla JavaScript for client-side interactivity, which provides a fair comparison with other frameworks. In a real Laravel application, you might use:
+`index.php` boots the Blade view factory by hand — compiler, engine resolver, view finder and factory — then renders the single view:
 
-- Laravel Blade templating engine for server-side rendering
-- Livewire for reactive components
-- Inertia.js for SPA-like experience
-- Alpine.js for lightweight reactivity
+```php
+$bladeCompiler = new BladeCompiler($filesystem, $cachePath);
+$viewResolver->register('blade', fn () => new CompilerEngine($bladeCompiler));
+$viewFinder = new FileViewFinder($filesystem, [$viewsPath]);
+$viewFactory = new Factory($viewResolver, $viewFinder, $eventDispatcher);
 
-The current implementation demonstrates:
-- Pure PHP (minimal server logic)
-- Vanilla JavaScript for state management
-- DOM manipulation without frameworks
-- Standard web APIs
+echo $viewFactory->make('index', ['todos' => $todos])->render();
+```
 
-## Performance Considerations
+## Shared behaviour
 
-- No framework overhead
-- Direct DOM manipulation
-- Minimal JavaScript bundle
-- Server-side rendering potential with full Laravel
+The app implements the benchmark contract exactly:
 
-## Code Structure
+- **100 todos** on first render — `Todo item 1` … `Todo item 100`
+- **Every 3rd item completed** — items 3, 6, 9, …, 99 → **33 completed, 67 remaining**
+- Filters **All / Active / Completed**, plus add, toggle, toggle-all and delete
 
-- `index.php` - Main application file with HTML and JavaScript
-- `style.css` - Shared styling (copied from `/shared/styles/`)
-- `composer.json` - Composer configuration (for full Laravel setup)
+The initial data is generated server-side and handed to the view:
 
-## Full Laravel Implementation
+```php
+for ($i = 1; $i <= 100; $i++) {
+    $todos[] = [
+        'id' => $i,
+        'text' => "Todo item $i",
+        'completed' => $i % 3 === 0,
+    ];
+}
+```
 
-For a complete Laravel Blade implementation with server-side rendering:
+The remaining count is computed in Blade from the same data, so the server-rendered first paint already agrees with the client-side frameworks:
 
-1. Install Laravel: `composer create-project laravel/laravel blade-todo`
-2. Create routes in `routes/web.php`
-3. Create controller: `php artisan make:controller TodoController`
-4. Create Blade views in `resources/views/`
-5. Implement CRUD operations with database
-6. Use Blade directives (@foreach, @if, etc.)
+```blade
+<div class="todo-stats" id="todo-stats">
+    <span id="remaining-count">{{ collect($todos)->where('completed', false)->count() }}</span> items remaining
+</div>
+```
 
-This would provide true server-side rendering with SEO benefits and progressive enhancement.
+### A note on fairness
+
+Interaction after first paint is handled by vanilla JavaScript so that the comparison against the other six frameworks is about rendering and reactivity, not about network round-trips. Blade earns its keep at first paint: the list and stats are in the HTML before any script runs.
+
+The client-side `render()` mirrors the server output exactly — it emits `<li class="todo-item">` elements into the same container the Blade view uses, which keeps the DOM identical to the other frameworks (and is one of the parity fixes recorded in the main README).
+
+### Pixel parity
+
+`docs/pixel-parity.py` diffs this build against the React reference in every UI state and fails on any difference outside the two regions that hold the framework name. To keep the `.todo-stats` line byte-identical, the remaining-count digits are wrapped in their own `<span>`; leaving the digits and the `items remaining` suffix in one merged text node shifts subpixel glyph shaping by a fraction of a pixel and shows up as a real diff.
+
+
+## Code structure
+
+| File | Purpose |
+|------|---------|
+| `index.php` | Bootstraps Blade, builds the 100 todos, renders the view |
+| `views/index.blade.php` | The Blade template and client-side JavaScript |
+| `style.css` | Copy of the shared stylesheet |
+| `composer.json` | Composer manifest |
+| `cache/` | Blade compiled-view cache (gitignored) |
+
+## Verify
+
+```bash
+cd ../../docs
+npm run verify      # screenshot sanity
+npm run parity      # cross-framework assertions
+```

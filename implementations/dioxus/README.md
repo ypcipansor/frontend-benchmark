@@ -1,85 +1,97 @@
 # Dioxus Todo Implementation
 
-This is the Dioxus (Rust WebAssembly) implementation of the frontend benchmark Todo application.
+Dioxus (Rust/WebAssembly) implementation of the shared benchmark Todo app. See the [project README](../../README.md) for the specification and the cross-framework [parity checks](../../docs/parity-check.js).
 
-## Tech Stack
+## Screenshots
 
-- Dioxus (latest version)
-- Rust + WebAssembly
-- Dioxus CLI (dx)
+All five views of the Dioxus build, captured from its own dev server. They are identical to every other implementation apart from the framework name in the badge and footer.
 
-## Features
+| All (100 / 67 remaining) | Active (67) | Completed (33) | Input filled | Empty state |
+|:---:|:---:|:---:|:---:|:---:|
+| ![All](../../docs/images/dioxus/all.jpg) | ![Active](../../docs/images/dioxus/active.jpg) | ![Completed](../../docs/images/dioxus/completed.jpg) | ![Input-filled](../../docs/images/dioxus/input-filled.jpg) | ![Empty state](../../docs/images/dioxus/empty-state.jpg) |
 
-- Add, toggle, and delete todos
-- Filter todos (All, Active, Completed)
-- Display remaining todo count
-- Pre-populated with 100 todos
-- Responsive design
-- React-like syntax with RSX
+Optimized crops live in [`docs/images/dioxus/`](../../docs/images/dioxus/); the full-resolution 1440×1024 PNGs are in [`docs/screenshots/dioxus/`](../../docs/screenshots/dioxus/). The [project README](../../README.md) shows the same five views side by side across all seven frameworks.
+
+## Tech stack
+
+| | |
+|---|---|
+| Framework | Dioxus 0.7 (`web` feature) |
+| Language | Rust, compiled to WebAssembly |
+| Build tool | [Trunk](https://trunkrs.dev/) (the `dx` CLI also works) |
 
 ## Prerequisites
 
-- Rust 1.70+
-- Dioxus CLI: `cargo install dioxus-cli`
-- wasm32-unknown-unknown target: `rustup target add wasm32-unknown-unknown`
-
-## Project Setup
-
 ```bash
-# Initialize Dioxus project
-dx new dioxus-todo
+rustup target add wasm32-unknown-unknown
+cargo install trunk --locked
 ```
 
-Or manually add to `Cargo.toml`:
-```toml
-[dependencies]
-dioxus = { version = "0.6", features = ["web"] }
-dioxus-web = "0.6"
+## Running it
 
+Trunk reads the `data-trunk rel="rust"` directive from `index.html`, compiles the crate and injects the loader script:
+
+```bash
+trunk serve --open                 # http://localhost:8080
+trunk build --release              # production build in dist/
+```
+
+In the benchmark the built `dist/` is served as a static site on a fixed port:
+
+```bash
+trunk build --release
+python3 -m http.server 4006 --bind 127.0.0.1 --directory dist
+```
+
+> The `dx` CLI (`cargo install dioxus-cli`, then `dx serve`) works too, but Trunk keeps the build story identical to Leptos and Yew.
+
+## Shared behaviour
+
+The app implements the benchmark contract exactly:
+
+- **100 todos** on first render — `Todo item 1` … `Todo item 100`
+- **Every 3rd item completed** — items 3, 6, 9, …, 99 → **33 completed, 67 remaining**
+- Filters **All / Active / Completed**, plus add, toggle, toggle-all and delete
+
+The completion rule uses a 1-based index, matching the other Rust and PHP implementations.
+
+## Styling and layout parity
+
+`index.html` links the shared stylesheet directly:
+
+```html
+<link rel="stylesheet" href="../../shared/styles/todo.css">
+```
+
+Dioxus mounts into `#main`; the shared stylesheet neutralises that wrapper (along with `#root`, `#app` and `app-root`) so the card renders at **600px wide, x=420** just like every other implementation.
+
+### Pixel parity
+
+`docs/pixel-parity.py` diffs this build against the React reference in every UI state and fails on any difference outside the two regions that hold the framework name. To keep the `.todo-stats` line byte-identical, the remaining-count digits are wrapped in their own `<span>`; leaving the digits and the `items remaining` suffix in one merged text node shifts subpixel glyph shaping by a fraction of a pixel and shows up as a real diff.
+
+
+## Code structure
+
+| File | Purpose |
+|------|---------|
+| `src/main.rs` | Entry point, Todo model, state and RSX view |
+| `index.html` | Trunk template, `<div id="main">` and `<title>Todo List - Dioxus</title>` |
+| `Cargo.toml` | Crate manifest and release profile |
+| `Dockerfile` | Containerised build |
+
+Release profile used for the benchmark numbers:
+
+```toml
 [profile.release]
 opt-level = 'z'
 lto = true
 codegen-units = 1
 ```
 
-## Getting Started
-
-### Development
+## Verify
 
 ```bash
-dx serve --hot-reload
+cd ../../docs
+npm run verify      # screenshot sanity
+npm run parity      # cross-framework assertions
 ```
-
-Open [http://localhost:8080](http://localhost:8080) in your browser.
-
-### Build
-
-```bash
-dx build --release
-```
-
-The production build will be in the `dist/` directory.
-
-## Performance Considerations
-
-- React-like mental model with Rust performance
-- Fine-grained reactivity without virtual DOM overhead
-- WebAssembly compilation
-- Hot reloading in development
-
-## Implementation Notes
-
-Dioxus provides a familiar React-like API but with Rust's performance and safety benefits. It uses RSX syntax similar to JSX and compiles to WebAssembly.
-
-Key features used:
-- use_state hook for reactive state
-- use_memo for computed values
-- RSX for declarative UI
-- Event handlers with strong typing
-
-## Code Structure
-
-- `src/main.rs` - Entry point and main Todo component
-- `src/components.rs` - Component definitions (if split)
-- `Dioxus.toml` - Dioxus configuration
-- `public/` - Static assets

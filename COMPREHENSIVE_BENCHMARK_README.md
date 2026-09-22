@@ -203,7 +203,7 @@ docker compose down react
 After benchmarking:
 
 1. **Review results:** `cat benchmarks/results/comprehensive-benchmark-results.json`
-2. **Update RESULTS.md:** Add findings to main results file
+2. **Update the README:** Run `npm run update-readme` to regenerate the **Benchmark Results** section of [README.md](README.md)
 3. **Analyze patterns:** Which framework performs best for your needs?
 4. **Optimize:** Identify and fix bottlenecks
 

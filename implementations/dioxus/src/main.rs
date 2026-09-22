@@ -42,7 +42,10 @@ fn App() -> Element {
 
     let remaining_text = use_memo(move || {
         let count = *remaining_count.read();
-        format!("{} {} remaining", count, if count == 1 { "item" } else { "items" })
+        format!(
+            " {} remaining",
+            if count == 1 { "item" } else { "items" }
+        )
     });
 
     // Computed values
@@ -125,6 +128,7 @@ fn App() -> Element {
             }
 
             div { class: "todo-stats",
+                span { "{remaining_count.read()}" }
                 "{remaining_text.read()}"
             }
 

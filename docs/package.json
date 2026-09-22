@@ -1,0 +1,32 @@
+{
+  "name": "frontend-benchmark-docs",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Screenshot capture, visual-parity verification and README gallery tooling for the 7-framework Todo benchmark",
+  "scripts": {
+    "capture": "node screenshot.js --out screenshots",
+    "capture:react": "node screenshot.js --framework react --out screenshots",
+    "capture:vue": "node screenshot.js --framework vue --out screenshots",
+    "capture:angular": "node screenshot.js --framework angular --out screenshots",
+    "capture:leptos": "node screenshot.js --framework leptos --out screenshots",
+    "capture:yew": "node screenshot.js --framework yew --out screenshots",
+    "capture:dioxus": "node screenshot.js --framework dioxus --out screenshots",
+    "capture:blade": "node screenshot.js --framework blade --out screenshots",
+    "verify": "node verify-screenshots.js --dir screenshots",
+    "parity": "node parity-check.js",
+    "pixel": "python3 pixel-parity.py",
+    "optimize": "python3 optimize-images.py",
+    "montage": "node build-montage.js"
+  },
+  "keywords": [
+    "frontend",
+    "benchmark",
+    "screenshot",
+    "visual-parity"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "playwright": "^1.63.0",
+    "pngjs": "^7.0.0"
+  }
+}

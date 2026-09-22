@@ -6,7 +6,7 @@ const generateInitialTodos = (count) => {
   return Array.from({ length: count }, (_, i) => ({
     id: i + 1,
     text: `Todo item ${i + 1}`,
-    completed: i % 3 === 0, // Every 3rd item is completed
+    completed: (i + 1) % 3 === 0, // Every 3rd item (3, 6, 9, ...) is completed
   }));
 };
 
@@ -115,9 +115,7 @@ const handleKeyPress = (e) => {
       </button>
     </div>
 
-    <div class="todo-stats">
-      {{ remainingCount }} {{ remainingCount === 1 ? 'item' : 'items' }} remaining
-    </div>
+    <div class="todo-stats"><span>{{ remainingCount }}</span> {{ remainingCount === 1 ? 'item' : 'items' }} remaining</div>
 
     <div v-if="filteredTodos.length === 0" class="empty-state">
       <div class="empty-state-icon">📝</div>

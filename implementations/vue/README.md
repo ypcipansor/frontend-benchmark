@@ -1,70 +1,94 @@
 # Vue.js Todo Implementation
 
-This is the Vue.js implementation of the frontend benchmark Todo application.
+Vue implementation of the shared benchmark Todo app. See the [project README](../../README.md) for the specification and the cross-framework [parity checks](../../docs/parity-check.js).
 
-## Tech Stack
+## Screenshots
 
-- Vue.js 3.5.22
-- Vite (Build tool)
-- Composition API with `<script setup>`
+All five views of the Vue.js build, captured from its own dev server. They are identical to every other implementation apart from the framework name in the badge and footer.
 
-## Features
+| All (100 / 67 remaining) | Active (67) | Completed (33) | Input filled | Empty state |
+|:---:|:---:|:---:|:---:|:---:|
+| ![All](../../docs/images/vue/all.jpg) | ![Active](../../docs/images/vue/active.jpg) | ![Completed](../../docs/images/vue/completed.jpg) | ![Input-filled](../../docs/images/vue/input-filled.jpg) | ![Empty state](../../docs/images/vue/empty-state.jpg) |
 
-- Add, toggle, and delete todos
-- Filter todos (All, Active, Completed)
-- Display remaining todo count
-- Pre-populated with 100 todos
-- Responsive design
-- Accessibility support
+Optimized crops live in [`docs/images/vue/`](../../docs/images/vue/); the full-resolution 1440×1024 PNGs are in [`docs/screenshots/vue/`](../../docs/screenshots/vue/). The [project README](../../README.md) shows the same five views side by side across all seven frameworks.
 
-## Getting Started
+## Tech stack
 
-### Prerequisites
+| | |
+|---|---|
+| Framework | Vue.js 3.5.22 |
+| API style | Composition API with `<script setup>` |
+| Build tool | Vite 8 |
 
-- Node.js 18+
-- npm
-
-### Installation
+## Running it
 
 ```bash
 npm install
+npm run dev            # http://localhost:5173
+npm run build          # production bundle in dist/
+npm run preview        # serve the production build
 ```
 
-### Development
+In the benchmark the dev server is pinned to a fixed port so it can be reached by the screenshot tooling:
 
 ```bash
-npm run dev
+npm run dev -- --port 4002 --strictPort
 ```
 
-Open [http://localhost:5173](http://localhost:5173) in your browser.
+## Shared behaviour
 
-### Build
+The app implements the benchmark contract exactly:
+
+- **100 todos** on first render — `Todo item 1` … `Todo item 100`
+- **Every 3rd item completed** — items 3, 6, 9, …, 99 → **33 completed, 67 remaining**
+- Filters **All / Active / Completed**, plus add, toggle, toggle-all and delete
+- Styling comes from `src/style.css`, a copy of [`shared/styles/todo.css`](../../shared/styles/todo.css)
+
+The completion rule is the important detail for parity:
+
+```js
+completed: (i + 1) % 3 === 0,   // 1-based index: items 3, 6, 9, ... are completed
+```
+
+## Layout parity
+
+Vue mounts into `#app`, while Blade renders `.todo-app` straight into `<body>`. To stop that wrapper from shrinking and re-centring the card, the shared stylesheet neutralises every framework mount point:
+
+```css
+#root,
+#app,
+#main,
+app-root {
+  display: contents;
+}
+```
+
+With that in place the card is the only flex child of `<body>` and renders at **600px wide, x=420**, identical to the other six implementations.
+
+### Pixel parity
+
+`docs/pixel-parity.py` diffs this build against the React reference in every UI state and fails on any difference outside the two regions that hold the framework name. To keep the `.todo-stats` line byte-identical, the remaining-count digits are wrapped in their own `<span>`; leaving the digits and the `items remaining` suffix in one merged text node shifts subpixel glyph shaping by a fraction of a pixel and shows up as a real diff.
+
+
+## Code structure
+
+| File | Purpose |
+|------|---------|
+| `src/App.vue` | The Todo component — `ref` state and `computed` derived values |
+| `src/main.js` | Vue entry point |
+| `src/style.css` | Copy of the shared stylesheet |
+| `index.html` | Vite entry HTML, `<title>Todo List - Vue.js</title>` |
+
+## Performance notes
+
+- `computed` for the filtered list and the remaining count, so they only recompute when state changes
+- Keyed `v-for` rendering
+- Direct reactive state, no watchers on the hot path
+
+## Verify
 
 ```bash
-npm run build
+cd ../../docs
+npm run verify      # screenshot sanity
+npm run parity      # cross-framework assertions
 ```
-
-The production build will be in the `dist/` directory.
-
-### Preview Production Build
-
-```bash
-npm run preview
-```
-
-## Performance Considerations
-
-- Uses Composition API for optimal reactivity
-- Computed properties for filtered todos and remaining count
-- Efficient v-for rendering with keys
-- Reactive state management
-
-## Bundle Size
-
-Run `npm run build` to see the production bundle size.
-
-## Code Structure
-
-- `src/App.vue` - Main Todo application component using Composition API
-- `src/style.css` - Shared styling (copied from `/shared/styles/`)
-- `src/main.js` - Entry point

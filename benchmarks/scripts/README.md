@@ -84,10 +84,16 @@ Generates a markdown report from benchmark results.
 
 - **Performance**
   - First Contentful Paint (FCP)
+  - Largest Contentful Paint (LCP)
   - Time to Interactive (TTI)
   - Total Blocking Time (TBT)
   - Cumulative Layout Shift (CLS)
-  - Largest Contentful Paint (LCP)
+  - Speed Index
+
+- **Load**
+  - Peak requests/second
+  - p50 / p90 / p99 latency
+  - Error and non-2xx counts up to 2,000 concurrent connections
 
 - **Bundle Size**
   - JavaScript size (gzipped)
@@ -96,11 +102,38 @@ Generates a markdown report from benchmark results.
   - WASM size (for Rust implementations)
 
 - **Runtime**
-  - Time to add 1000 todos
-  - Time to toggle 100 todos
-  - Memory consumption
-  - CPU usage
+  - CPU usage (average / peak)
+  - Memory usage (average / peak)
+
+- **Build**
+  - Container build time
 
 ## Results
 
-Results are saved to `../results/` directory in JSON and markdown format.
+Raw results are written to `../results/` as JSON. That directory is **gitignored**: CI uploads `comprehensive-benchmark-results.json` as a workflow artifact retained for 90 days.
+
+### Publishing results
+
+```bash
+npm run update-readme
+```
+
+This finds the `## Benchmark Results` heading in the root `README.md` and replaces everything up to the next `##` heading with freshly formatted tables. Nothing outside that section is touched, so the screenshots and documentation above it survive the weekly refresh.
+
+The shape of the result JSON is documented in [RESULTS_TEMPLATE.md](../../RESULTS_TEMPLATE.md).
+
+## Verifying visual parity
+
+Performance numbers mean nothing if the frameworks are not rendering the same app. The parity tooling lives in [`docs/`](../../docs/) and is separate from the timing scripts:
+
+```bash
+cd ../docs
+npm install && npx playwright install chromium
+npm run parity      # assert identical DOM, geometry, content and stats
+npm run capture     # capture all five UI states
+npm run verify      # reject blank, white, mis-sized or error-free screenshots
+npm run pixel       # pixel-diff every state against the reference
+```
+
+`npm run pixel` is the strictest gate: it fails on any pixel difference outside
+the header badge and the footer, where the framework name legitimately differs.

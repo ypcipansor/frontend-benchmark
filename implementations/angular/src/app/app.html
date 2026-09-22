@@ -49,9 +49,7 @@
     </button>
   </div>
 
-  <div class="todo-stats">
-    {{ remainingCount() }} {{ remainingCount() === 1 ? 'item' : 'items' }} remaining
-  </div>
+  <div class="todo-stats"><span>{{ remainingCount() }}</span> {{ remainingCount() === 1 ? 'item' : 'items' }} remaining</div>
 
   <div *ngIf="filteredTodos().length === 0" class="empty-state">
     <div class="empty-state-icon">📝</div>

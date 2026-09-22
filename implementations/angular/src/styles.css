@@ -6,6 +6,18 @@
   box-sizing: border-box;
 }
 
+/* Framework mount points must not participate in layout. React (#root),
+   Vue (#app), Angular (app-root) and Dioxus (#main) render into a wrapper
+   element, while Blade outputs .todo-app directly into <body>. Neutralizing
+   the wrappers makes .todo-app the single flex child in every
+   implementation, so all seven frameworks render the exact same 600px card. */
+#root,
+#app,
+#main,
+app-root {
+  display: contents;
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',

@@ -40,9 +40,11 @@ This will sequentially:
 
 **Expected Duration:**
 - JavaScript frameworks (React, Vue, Angular): ~30 minutes total
-- Rust frameworks (Leptos, Yew, Dioxus): ~90 minutes total
-- PHP framework (Blade): ~5 minutes
+- Rust/WASM frameworks (Leptos, Yew, Dioxus): ~90 minutes total
+- PHP framework (Blade.php): ~5 minutes
 - **Total: ~2 hours**
+
+> Visual parity is verified separately and quickly — see [`docs/README.md`](docs/README.md). `docs/parity-check.js` drives all seven dev servers and asserts identical geometry, content and stats, while `docs/screenshot.js` captures every UI state for the [project README](README.md#visual-parity--every-framework-every-state).
 
 ### Run Individual Frameworks
 
@@ -316,7 +318,7 @@ jobs:
 After running benchmarks:
 
 1. Review `benchmarks/results/comprehensive-benchmark-results.json`
-2. Update `RESULTS.md` with the findings
+2. Regenerate the **Benchmark Results** section of [README.md](README.md) with `npm run update-readme`
 3. Create visualizations/charts if needed
 4. Analyze performance bottlenecks
 5. Optimize frameworks that underperform
@@ -342,11 +344,12 @@ npm run benchmark:docker:full
 # Results will be in:
 cat ../results/comprehensive-benchmark-results.json
 
-# Update RESULTS.md manually with findings
+# Regenerate the Benchmark Results section of README.md
+npm run update-readme
 ```
 
 ## Questions?
 
 - Check `DOCKER.md` for Docker setup
 - Check `QUICKSTART_DOCKER.md` for quick commands
-- Review `CHANGELOG_DOCKER.md` for implementation details
+- Review [RESULTS_TEMPLATE.md](RESULTS_TEMPLATE.md) for the result JSON shape

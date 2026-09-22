@@ -13,7 +13,7 @@ const generateInitialTodos = (count: number): Todo[] => {
   return Array.from({ length: count }, (_, i) => ({
     id: i + 1,
     text: `Todo item ${i + 1}`,
-    completed: i % 3 === 0, // Every 3rd item is completed
+    completed: (i + 1) % 3 === 0, // Every 3rd item (3, 6, 9, ...) is completed
   }));
 };
 
