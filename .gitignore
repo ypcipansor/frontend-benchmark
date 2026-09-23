@@ -66,3 +66,7 @@ docs/logs/
 *.wasm.d.ts
 pkg/
 benchmarks/results/*.json
+
+# Python bytecode
+__pycache__/
+*.pyc

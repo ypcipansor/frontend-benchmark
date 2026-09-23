@@ -6,73 +6,114 @@
 # docs/logs/<framework>.pid so stop-servers.sh can terminate exactly those
 # processes (never a broad pkill).
 #
+# A port that is already in use is a hard error: the script refuses to start so a
+# pre-existing (possibly stale) server can never be mistaken for the one it just
+# launched. It never kills a foreign process. If any server fails, everything
+# this run already started is stopped before exiting.
+#
 # Usage: bash docs/scripts/start-servers.sh [--ready-timeout 120] [--only <fw>]
+#                                            [--port-offset N]
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-LOGS="$ROOT/docs/logs"
+LOGS="${FB_LOGS_DIR:-$ROOT/docs/logs}"
 READY_TIMEOUT=120
 ONLY=""
+PORT_OFFSET=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --ready-timeout) READY_TIMEOUT="$2"; shift 2 ;;
     --only) ONLY="$2"; shift 2 ;;
+    --port-offset) PORT_OFFSET="$2"; shift 2 ;;
     *) echo "start-servers.sh: unknown argument $1" >&2; exit 2 ;;
   esac
 done
+
+# Ports are data so --port-offset can shift them (used by the regression tests to
+# exercise the stale-port guard without touching the real benchmark ports).
+PORT_REACT=$((4001 + PORT_OFFSET))
+PORT_VUE=$((4002 + PORT_OFFSET))
+PORT_ANGULAR=$((4003 + PORT_OFFSET))
+PORT_LEPTOS=$((4004 + PORT_OFFSET))
+PORT_YEW=$((4005 + PORT_OFFSET))
+PORT_DIOXUS=$((4006 + PORT_OFFSET))
+PORT_BLADE=$((4007 + PORT_OFFSET))
 
 mkdir -p "$LOGS"
 FAILED=0
 
 want() { [ -z "$ONLY" ] || [ "$1" = "$ONLY" ]; }
 
+# PIDs launched by *this* run, so a partial failure stops only what we started.
+STARTED_PIDS=()
+
 start() {
   local name="$1"; shift
   if ! want "$name"; then return; fi
   echo "starting $name ..."
-  ( "$@" ) >"$LOGS/$name.log" 2>&1 &
-  echo $! >"$LOGS/$name.pid"
+  # Run each server in its own session (setsid), so the recorded PID is a process
+  # group leader. stop-servers.sh can then terminate the whole tree with
+  # `kill -TERM -$pid`; without this, killing the npm wrapper can re-parent and
+  # orphan the vite/ng child, which keeps the port busy and stales the next run.
+  setsid "$@" >"$LOGS/$name.log" 2>&1 &
+  local pid=$!
+  echo "$pid" >"$LOGS/$name.pid"
+  STARTED_PIDS+=("$pid")
 }
 
-wait_port() {
-  local name="$1" port="$2"
-  if ! want "$name"; then return; fi
-  local deadline=$(( $(date +%s) + READY_TIMEOUT ))
-  while [ "$(date +%s)" -lt "$deadline" ]; do
-    if curl -sf -o /dev/null "http://127.0.0.1:$port/"; then
-      echo "  $name ready on $port"
-      return 0
-    fi
-    if ! kill -0 "$(cat "$LOGS/$name.pid")" 2>/dev/null; then
-      echo "  $name process exited before becoming ready" >&2
-      FAILED=1
-      return 1
-    fi
-    sleep 1
-  done
-  echo "  $name did not become ready within ${READY_TIMEOUT}s" >&2
-  FAILED=1
-  return 1
+# True when something already accepts TCP connections on the port. Uses bash's
+# /dev/tcp so no extra tool (lsof, nc) is required on the CI runner.
+port_in_use() {
+  local port="$1"
+  (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null || return 1
+  exec 3<&-
+  exec 3>&-
+  return 0
 }
+
+pid_for() { cat "$LOGS/$1.pid" 2>/dev/null || true; }
+
+# Preflight: refuse to start when a target port is already taken. This is what
+# prevents a stale server from being reported as freshly ready. It runs before
+# anything is launched, so a bad port set leaves the machine untouched.
+declare -A PORT_OF=(
+  [react]="$PORT_REACT" [vue]="$PORT_VUE" [angular]="$PORT_ANGULAR"
+  [leptos]="$PORT_LEPTOS" [yew]="$PORT_YEW" [dioxus]="$PORT_DIOXUS"
+  [blade]="$PORT_BLADE"
+)
+for name in react vue angular leptos yew dioxus blade; do
+  want "$name" || continue
+  port="${PORT_OF[$name]}"
+  if port_in_use "$port"; then
+    echo "start-servers.sh: port $port for $name is already in use;" \
+         "refusing to start (a stale server must not be mistaken for this run)" >&2
+    FAILED=1
+  fi
+done # (preflight)
+
+if [ "$FAILED" -ne 0 ]; then
+  echo "start-servers.sh: preflight failed; no servers were started" >&2
+  exit 1
+fi
 
 # --- JavaScript frameworks: Vite dev servers ------------------------------
 if want react; then
   start react npm --prefix "$ROOT/implementations/react" run dev -- \
-    --port 4001 --host 127.0.0.1 --strictPort
+    --port "$PORT_REACT" --host 127.0.0.1 --strictPort
 fi
 if want vue; then
   start vue npm --prefix "$ROOT/implementations/vue" run dev -- \
-    --port 4002 --host 127.0.0.1 --strictPort
+    --port "$PORT_VUE" --host 127.0.0.1 --strictPort
 fi
 if want angular; then
   start angular npm --prefix "$ROOT/implementations/angular" start -- \
-    --port 4003 --host 127.0.0.1
+    --port "$PORT_ANGULAR" --host 127.0.0.1
 fi
 
 # --- Blade: PHP built-in server -------------------------------------------
 if want blade; then
-  start blade php -S 127.0.0.1:4007 -t "$ROOT/implementations/blade"
+  start blade php -S "127.0.0.1:$PORT_BLADE" -t "$ROOT/implementations/blade"
 fi
 
 # --- Rust frameworks: static dist built by trunk ---------------------------
@@ -90,29 +131,74 @@ mirror_shared() {
 
 if want leptos; then
   mirror_shared leptos
-  start leptos python3 -m http.server 4004 --bind 127.0.0.1 \
+  start leptos python3 -m http.server "$PORT_LEPTOS" --bind 127.0.0.1 \
     --directory "$ROOT/implementations/leptos/dist"
 fi
 if want yew; then
   mirror_shared yew
-  start yew python3 -m http.server 4005 --bind 127.0.0.1 \
+  start yew python3 -m http.server "$PORT_YEW" --bind 127.0.0.1 \
     --directory "$ROOT/implementations/yew/dist"
 fi
 if want dioxus; then
   mirror_shared dioxus
-  start dioxus python3 -m http.server 4006 --bind 127.0.0.1 \
+  start dioxus python3 -m http.server "$PORT_DIOXUS" --bind 127.0.0.1 \
     --directory "$ROOT/implementations/dioxus/dist"
 fi
 
-wait_port react 4001
-wait_port vue 4002
-wait_port angular 4003
-wait_port leptos 4004
-wait_port yew 4005
-wait_port dioxus 4006
-wait_port blade 4007
+# Stop everything this run launched, so a failure never leaves partial servers.
+stop_started() {
+  local pid
+  for pid in "${STARTED_PIDS[@]:-}"; do
+    [ -n "$pid" ] || continue
+    kill -TERM "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null
+  done
+  for pid in "${STARTED_PIDS[@]:-}"; do
+    [ -n "$pid" ] || continue
+    kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null
+  done
+}
+
+# Preflight already ran before anything was launched.
+
+wait_port() {
+  local name="$1" port="$2"
+  if ! want "$name"; then return; fi
+  local pid; pid="$(pid_for "$name")"
+  if [ -z "$pid" ]; then
+    echo "  $name: no PID recorded; cannot verify readiness" >&2
+    FAILED=1
+    return 1
+  fi
+  local deadline=$(( $(date +%s) + READY_TIMEOUT ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    # The PID we launched must still be alive before we accept an HTTP response:
+    # otherwise the response could come from something else entirely.
+    if ! kill -0 "$pid" 2>/dev/null; then
+      echo "  $name process (pid $pid) exited before becoming ready" >&2
+      FAILED=1
+      return 1
+    fi
+    if curl -sf -o /dev/null "http://127.0.0.1:$port/"; then
+      echo "  $name ready on $port"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "  $name did not become ready within ${READY_TIMEOUT}s" >&2
+  FAILED=1
+  return 1
+}
+
+wait_port react "$PORT_REACT"
+wait_port vue "$PORT_VUE"
+wait_port angular "$PORT_ANGULAR"
+wait_port leptos "$PORT_LEPTOS"
+wait_port yew "$PORT_YEW"
+wait_port dioxus "$PORT_DIOXUS"
+wait_port blade "$PORT_BLADE"
 
 if [ "$FAILED" -ne 0 ]; then
+  stop_started
   echo "start-servers.sh: one or more servers failed to start" >&2
   exit 1
 fi

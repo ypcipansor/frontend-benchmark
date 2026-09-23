@@ -5,8 +5,8 @@ Tools that capture the seven implementations, prove they render identically, and
 ## Setup
 
 Python 3 **and** Node.js 18+ are required. `pixel-parity.py` and
-`optimize-images.py` import **NumPy** and **Pillow**, so both Python packages
-must be installed from the pinned range in `docs/requirements.txt`.
+`optimize-images.py` import **NumPy** and **Pillow**, which are pinned to exact
+versions in `docs/requirements.txt` (a pinned install, not a hash-verified lock).
 
 ```bash
 cd docs
@@ -27,8 +27,16 @@ Dev servers can be started and stopped as a set:
 
 ```bash
 bash docs/scripts/start-servers.sh   # all seven on their fixed ports
-bash docs/scripts/stop-servers.sh    # stops exactly the PIDs it started
+bash docs/scripts/stop-servers.sh    # stops exactly the processes it started
 ```
+
+`start-servers.sh` refuses to start if any target port is already in use — a
+pre-existing (possibly stale) server can never be mistaken for the one it just
+launched, and it never kills a foreign process. It checks the launched PID is
+still alive before accepting an HTTP response, and if any server fails it stops
+everything this run already started. Each server is launched with `setsid`, and
+`stop-servers.sh` signals the whole process group, so no orphaned child keeps
+holding a port after a stop.
 
 ## Pipeline
 
@@ -76,13 +84,17 @@ Five states × seven frameworks = **35 screenshots**, every one embedded in the 
 
 ## What `parity-check.js` asserts
 
+The expected title, badge and footer are declared per target in `DEFAULT_TARGETS`
+(the content contract is data, not inferred from the target name), so a wrong
+label cannot pass by being compared against itself.
+
 - **Geometry** — `.todo-app` is 600px wide at `x = 420`, and the header, input, filters, list, footer and toggle-all rectangles match the reference framework
-- **Content** — 100 items, the correct first and last labels, 33 checked boxes
+- **Content, exact** — `document.title` is `Todo List - <Framework>`, the badge and footer match their configured strings, the stats read exactly `67 items remaining`, the first and last rows read exactly `Todo item 1` and `Todo item 100`, and the filter labels are exactly `All`, `Active`, `Completed` (a missing or extra label fails). Counts (100 items, 33 checked) are asserted too
+- **Content, vs the reference** — `statsRaw`, `firstItem`, `lastItem` and `filterLabels` must also equal the reference framework's values, so shared drift is caught, not just per-target drift
 - **State** — `Active` → 67, `Completed` → 33, add → 101, delete → 100, and the remaining counter matches
 - **New item** — the row added during the exercise is found by its unique text (`Parity check item`), asserted to appear exactly once, then toggled and deleted; `.last()` is never used, so an item prepended or inserted elsewhere cannot be mistaken for it
 - **Toggle-all** — the `.todo-toggle-all` / `#toggle-all` control is *required*; the script fails if it is missing or if clicking it does not flip all 100 items completed (0 remaining) and back (100 remaining)
-- **Health** — no console errors or uncaught exceptions
-- **Titles** — `Todo List - <Framework>`
+- **Health** — no console errors or uncaught exceptions (a genuine favicon failure is the only tolerated one; see below)
 
 The script exits non-zero if any framework deviates, so it is safe to use as a CI gate.
 
@@ -101,7 +113,21 @@ and candidate boxes. That matters because:
 - the empty state is shorter, which moves the footer up, so a single fixed row
   range cannot describe it.
 
-Everything else must be byte-identical.
+Everything else must be **exactly equal per RGB channel**: a single unit of change
+in any channel outside the two masked regions counts as a difference. There is no
+colour tolerance, because the contract is byte-identity. Captures are therefore
+made deterministic: `screenshot.js` disables CSS animations/transitions for the
+screenshot (`animations: 'disabled'`, which fast-forwards a running transition to
+its end state) and waits for them to settle first, so a 300ms `border-color`
+transition on the focused input can no longer be captured mid-interpolation.
+
+## Console-error policy
+
+`collectPageErrors()` (`lib/console-errors.js`) tolerates exactly one kind of
+failure: a request/response/console error whose source **URL** is a favicon
+(`/(?:^|\/)favicon(?:\.[a-z0-9]+)?(?:[?#]|$)/`). Console *text* that merely
+mentions the word "favicon" is not enough, a bare `404 (Not Found)` with no
+favicon URL fails, any non-favicon 404 fails, and `pageerror` is never ignored.
 
 ## What `verify-screenshots.js` rejects
 

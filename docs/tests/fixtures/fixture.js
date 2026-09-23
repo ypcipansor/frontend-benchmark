@@ -8,9 +8,10 @@
   var FLAGS = window.FIXTURE_FLAGS || {};
 
   function generate(count) {
+    var prefix = FLAGS.itemLabelPrefix || 'Todo item ';
     return Array.from({ length: count }, (_, i) => ({
       id: i + 1,
-      text: 'Todo item ' + (i + 1),
+      text: prefix + (i + 1),
       completed: (i + 1) % 3 === 0,
     }));
   }

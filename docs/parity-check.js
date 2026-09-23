@@ -11,28 +11,43 @@
 const { chromium } = require('playwright');
 const { collectPageErrors } = require('./lib/console-errors');
 
+// The content contract each framework must satisfy. Title, badge and footer are
+// per-target expected values rather than being inferred from the target name, so
+// a wrong label cannot pass just because it was compared against itself.
 const DEFAULT_TARGETS = [
-  ['react', 4001],
-  ['vue', 4002],
-  ['angular', 4003],
-  ['leptos', 4004],
-  ['yew', 4005],
-  ['dioxus', 4006],
-  ['blade', 4007],
+  { name: 'react', port: 4001, title: 'Todo List - React', badge: 'React', footer: 'Frontend Benchmark - React Implementation' },
+  { name: 'vue', port: 4002, title: 'Todo List - Vue.js', badge: 'Vue.js', footer: 'Frontend Benchmark - Vue.js Implementation' },
+  { name: 'angular', port: 4003, title: 'Todo List - Angular', badge: 'Angular', footer: 'Frontend Benchmark - Angular Implementation' },
+  { name: 'leptos', port: 4004, title: 'Todo List - Leptos', badge: 'Leptos', footer: 'Frontend Benchmark - Leptos Implementation' },
+  { name: 'yew', port: 4005, title: 'Todo List - Yew', badge: 'Yew', footer: 'Frontend Benchmark - Yew Implementation' },
+  { name: 'dioxus', port: 4006, title: 'Todo List - Dioxus', badge: 'Dioxus', footer: 'Frontend Benchmark - Dioxus Implementation' },
+  { name: 'blade', port: 4007, title: 'Todo List - Blade.php', badge: 'Blade.php', footer: 'Frontend Benchmark - Blade.php Implementation' },
 ];
+
+const EXPECTED_TOTAL = 100;
+const EXPECTED_COMPLETED = 33; // items 3, 6, ... 99
+const EXPECTED_REMAINING = EXPECTED_TOTAL - EXPECTED_COMPLETED;
+const FILTER_LABELS = ['All', 'Active', 'Completed'];
+const FIRST_ITEM = 'Todo item 1';
+const LAST_ITEM = `Todo item ${EXPECTED_TOTAL}`;
+const STATS_TEXT = `${EXPECTED_REMAINING} items remaining`;
+const NEW_ITEM_TEXT = 'Parity check item';
 
 function parseArgs() {
   const args = process.argv.slice(2);
   const targets = [];
-  const opts = { reference: 'react' };
+  const opts = { reference: 'react', referenceExpect: null };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--target') {
       const [name, port] = String(args[++i]).split(':');
       if (!name || !port) throw new Error(`--target expects name:port, got "${args[i]}"`);
-      targets.push([name, Number(port)]);
+      targets.push({ name, port: Number(port) });
     } else if (a === '--reference') {
       opts.reference = args[++i];
+    } else if (a === '--expect') {
+      // JSON content contract for a fixture target: {title,badge,footer}.
+      opts.referenceExpect = JSON.parse(args[++i]);
     } else {
       throw new Error(`unknown argument ${a}`);
     }
@@ -41,11 +56,6 @@ function parseArgs() {
   opts.targets = targets.length ? targets : DEFAULT_TARGETS;
   return opts;
 }
-
-const EXPECTED_TOTAL = 100;
-const EXPECTED_COMPLETED = 33; // items 3, 6, ... 99
-const EXPECTED_REMAINING = EXPECTED_TOTAL - EXPECTED_COMPLETED;
-const NEW_ITEM_TEXT = 'Parity check item';
 
 // Toggle-all is part of the documented benchmark contract. The control must
 // exist and behave uniformly, so a missing or misbehaving toggle-all is fatal.
@@ -70,6 +80,7 @@ async function snapshot(page) {
     const items = [...document.querySelectorAll('.todo-item')];
     return {
       title: document.title,
+      badge: text('.framework-badge'),
       card: rect('.todo-app'),
       header: rect('.todo-header'),
       input: rect('.todo-input'),
@@ -80,13 +91,13 @@ async function snapshot(page) {
       statsRaw: text('.todo-stats'),
       statsNumbers: (text('.todo-stats') || '').match(/\d+/g),
       itemCount: items.length,
-      firstItem: items[0] ? items[0].textContent.replace(/\s+/g, ' ').trim() : null,
+      firstItem: items[0] ? (items[0].querySelector('.todo-text')?.textContent || '').replace(/\s+/g, ' ').trim() : null,
       lastItem: items[items.length - 1]
-        ? items[items.length - 1].textContent.replace(/\s+/g, ' ').trim()
+        ? (items[items.length - 1].querySelector('.todo-text')?.textContent || '').replace(/\s+/g, ' ').trim()
         : null,
       completedItems: items.filter((li) => li.querySelector('.todo-checkbox')?.checked).length,
       checkedCount: document.querySelectorAll('.todo-checkbox:checked').length,
-      filterLabels: [...document.querySelectorAll('.todo-filters button, .todo-filter')].map((b) =>
+      filterLabels: [...document.querySelectorAll('.todo-filters [aria-label^="Show "]')].map((b) =>
         b.textContent.replace(/\s+/g, ' ').trim()
       ),
       hasToggleAll: !!document.querySelector(toggleSel),
@@ -112,18 +123,24 @@ async function exercise(page) {
   }
   const toggleAllBtn = toggleAll.first();
 
+  // Filter by aria-label, not visible text: a wrong/renamed label is a content
+  // bug that the content assertions must catch — it should not turn into an
+  // interaction timeout and hide the real finding.
+  const filterBtn = (label) =>
+    page.locator(`.todo-filters [aria-label="Show ${label.toLowerCase()} todos"]`).first();
+
   // Filter: Active
-  await page.locator('.todo-filters button, .todo-filter').filter({ hasText: /^\s*Active\s*$/ }).first().click();
+  await filterBtn('Active').click();
   await page.waitForTimeout(250);
   results.activeCount = await page.locator('.todo-item').count();
 
   // Filter: Completed
-  await page.locator('.todo-filters button, .todo-filter').filter({ hasText: /^\s*Completed\s*$/ }).first().click();
+  await filterBtn('Completed').click();
   await page.waitForTimeout(250);
   results.completedCount = await page.locator('.todo-item').count();
 
   // Back to All, then add a todo
-  await page.locator('.todo-filters button, .todo-filter').filter({ hasText: /^\s*All\s*$/ }).first().click();
+  await filterBtn('All').click();
   await page.waitForTimeout(200);
   await page.locator('.todo-input').first().fill(NEW_ITEM_TEXT);
   await page.locator('.todo-input').first().press('Enter');
@@ -175,12 +192,24 @@ async function exercise(page) {
 (async () => {
   const opts = parseArgs();
   const TARGETS = opts.targets;
+  const byName = new Map(TARGETS.map((t) => [t.name, t]));
+  const refTarget = byName.get(opts.reference);
+  // Expected content for the reference target. `--expect` lets the regression
+  // tests describe a fixture's contract explicitly instead of guessing it.
+  const refExpect = opts.referenceExpect || (refTarget && {
+    title: refTarget.title,
+    badge: refTarget.badge,
+    footer: refTarget.footer,
+  });
+  if (!refExpect) {
+    throw new Error(`no expected content known for reference target "${opts.reference}"`);
+  }
   const browser = await chromium.launch({ args: ['--no-sandbox'] });
   const snaps = {};
   const exercises = {};
 
   try {
-    for (const [name, port] of TARGETS) {
+    for (const { name, port } of TARGETS) {
       const ctx = await browser.newContext({ viewport: { width: 1440, height: 1024 } });
       try {
         const page = await ctx.newPage();
@@ -210,8 +239,8 @@ async function exercise(page) {
     console.log('  ✗ ' + msg);
   };
 
-  console.log('=== Structural parity (vs react) ===');
-  for (const [name] of TARGETS) {
+  console.log('=== Structural parity ===');
+  for (const { name, title, badge, footer } of TARGETS) {
     const s = snaps[name];
     if (!s || s.fatal) {
       fail(`${name}: ${s && s.fatal}`);
@@ -227,16 +256,37 @@ async function exercise(page) {
     if (s.itemCount !== EXPECTED_TOTAL) issues.push(`itemCount ${s.itemCount} != ${EXPECTED_TOTAL}`);
     if (s.checkedCount !== EXPECTED_COMPLETED)
       issues.push(`checked ${s.checkedCount} != ${EXPECTED_COMPLETED}`);
-    if (Number(s.statsNumbers?.[0]) !== EXPECTED_REMAINING)
-      issues.push(`remaining ${s.statsNumbers?.[0]} != ${EXPECTED_REMAINING}`);
+
+    // Content contract: exact text, not substring/count checks, so a wrong
+    // wording (e.g. "68 items") or a missing filter cannot slip through.
+    const expect = name === opts.reference ? refExpect : { title, badge, footer };
+    if (s.title !== expect.title) issues.push(`title "${s.title}" != "${expect.title}"`);
+    if (s.badge !== expect.badge) issues.push(`badge "${s.badge}" != "${expect.badge}"`);
+    if (s.footerText !== expect.footer)
+      issues.push(`footer "${s.footerText}" != "${expect.footer}"`);
+    if (s.statsRaw !== STATS_TEXT) issues.push(`stats "${s.statsRaw}" != "${STATS_TEXT}"`);
+    if (s.firstItem !== FIRST_ITEM) issues.push(`firstItem "${s.firstItem}" != "${FIRST_ITEM}"`);
+    if (s.lastItem !== LAST_ITEM) issues.push(`lastItem "${s.lastItem}" != "${LAST_ITEM}"`);
+    if (JSON.stringify(s.filterLabels) !== JSON.stringify(FILTER_LABELS))
+      issues.push(`filterLabels ${JSON.stringify(s.filterLabels)} != ${JSON.stringify(FILTER_LABELS)}`);
     if (s.errors.length) issues.push(`console errors: ${s.errors.join(' | ')}`);
+
+    // Every framework must also agree with the reference on the content that is
+    // not framework-specific, so a shared drift is caught, not just per-target.
+    for (const k of ['statsRaw', 'firstItem', 'lastItem']) {
+      if (JSON.stringify(s[k]) !== JSON.stringify(reference[k]))
+        issues.push(`${k} ${JSON.stringify(s[k])} differs from ${opts.reference}`);
+    }
+    if (JSON.stringify(s.filterLabels) !== JSON.stringify(reference.filterLabels))
+      issues.push(`filterLabels differ from ${opts.reference}`);
+
     if (issues.length) fail(`${name}: ${issues.join('; ')}`);
     else console.log(`  ✓ ${name}`);
   }
 
   console.log('\n=== Interaction parity ===');
   const refEx = exercises[opts.reference];
-  for (const [name] of TARGETS) {
+  for (const { name } of TARGETS) {
     const e = exercises[name];
     if (!e) {
       fail(`${name}: no interaction results`);

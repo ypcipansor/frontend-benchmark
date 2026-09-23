@@ -7,7 +7,7 @@
  */
 'use strict';
 
-const FAVICON = /favicon/i;
+const FAVICON = /(?:^|\/)favicon(?:\.[a-z0-9]+)?(?:[?#]|$)/i;
 
 function isFavicon(url) {
   return FAVICON.test(String(url || ''));

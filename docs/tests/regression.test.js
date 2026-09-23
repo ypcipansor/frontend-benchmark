@@ -14,19 +14,31 @@
  *  7. toggle-all is required and its behaviour is asserted
  *  8. a report without badge/footer rectangles fails the pixel checker
  *  9. the console-error policy tolerates a missing favicon but not a real 404
+ * 10. parity-check.js fails on a wrong title/badge/footer/stats/filter/item label
+ * 11. pixel-parity.py fails on a 1-unit RGB change outside the mask, and ignores
+ *     changes inside it
+ * 12. start-servers.sh refuses a port that is already serving (stale server)
+ * 13. stop-servers.sh reaps the whole process group, leaving no orphan on the port
  *
- * Usage: node docs/tests/regression.test.js
+ * Every fixture is synthetic and self-contained: no test reads
+ * docs/screenshots/, so the suite runs on a clean checkout (and with the
+ * production captures moved away) — see the `--require-no-captures` flag.
+ *
+ * Usage: node docs/tests/regression.test.js [--require-no-captures]
  */
 const { spawnSync } = require('child_process');
 const { spawn } = require('child_process');
 const fs = require('fs');
+const http = require('http');
 const os = require('os');
 const path = require('path');
+const { PNG } = require('pngjs');
 
 const DOCS = path.resolve(__dirname, '..');
 const ROOT = path.resolve(DOCS, '..');
 const SHOTS = path.join(DOCS, 'screenshots');
 const FIXTURE_PORT = 4188;
+const REQUIRE_NO_CAPTURES = process.argv.includes('--require-no-captures');
 
 let passed = 0;
 let failed = 0;
@@ -58,8 +70,35 @@ function run(cmd, args, opts = {}) {
   return res;
 }
 
+/**
+ * Run parity-check.js against the fixture server. The fixture's title, badge and
+ * footer are declared explicitly (--expect), because the content contract is
+ * data, not something the script should guess from the target's name.
+ */
+const FIXTURE_EXPECT = JSON.stringify({
+  title: 'Todo List - Fixture',
+  badge: 'Fixture',
+  footer: 'Frontend Benchmark - Fixture Implementation',
+});
+
+function runParity(flags = {}, opts = {}) {
+  const args = [
+    path.join(DOCS, 'parity-check.js'),
+    '--target', `fixture:${FIXTURE_PORT}`,
+    '--reference', 'fixture',
+    '--expect', FIXTURE_EXPECT,
+  ];
+  return run('node', args, { timeout: 60000, ...opts });
+}
+
 function tmpDir(name) {
   return fs.mkdtempSync(path.join(os.tmpdir(), `fb-${name}-`));
+}
+
+/** Last few lines of a long command output, for readable failure messages. */
+function tail(s, n = 25) {
+  const lines = String(s || '').trimEnd().split('\n');
+  return lines.slice(-n).join('\n');
 }
 
 async function waitForPort(port, timeoutMs = 15000) {
@@ -118,13 +157,78 @@ function readReport(outDir, name) {
 }
 
 // ---------------------------------------------------------------------------
-// A report fixture builder for the pixel-checker test.
-function writeShots(dir, { omitRects = false, frameworks = null } = {}) {
-  const FW = frameworks || ['react', 'vue', 'angular', 'leptos', 'yew', 'dioxus', 'blade'];
-  const STATES = ['all', 'active', 'completed', 'input-filled', 'empty-state'];
+// Synthetic fixtures. These are deliberately self-contained: nothing here reads
+// docs/screenshots/, so the suite runs on a clean checkout and while the
+// production captures are being regenerated. The images are realistic enough to
+// satisfy the verifier's layout/colour/white-ratio checks and the pixel
+// checker's mask behaviour.
+const FRAMEWORKS = ['react', 'vue', 'angular', 'leptos', 'yew', 'dioxus', 'blade'];
+const STATES = ['all', 'active', 'completed', 'input-filled', 'empty-state'];
+const VIEWPORT_W = 1440;
+const VIEWPORT_H = 1024;
+const CARD_LEFT = 420;
+const CARD_WIDTH = 600;
+const CARD_TOP = 114;
+const POPULATED_HEIGHT = 796;
+const EMPTY_HEIGHT = 500;
+// Badge and footer boxes recorded in the report and used as the pixel mask.
+const BADGE_RECT = [560, 145, 90, 28];
+const FOOTER_RECT = [450, 880, 540, 30];
+
+/**
+ * A deterministic screenshot: a non-white gradient backdrop, a white card of the
+ * given height holding many distinct colours (so uniqueColors is realistic), and
+ * a coloured marker inside `badgeRect` that differs per framework — exactly the
+ * kind of framework-name difference the pixel checker is meant to mask.
+ */
+function writeShot(file, { cardHeight, markerColor }) {
+  const png = new PNG({ width: VIEWPORT_W, height: VIEWPORT_H });
+  for (let y = 0; y < VIEWPORT_H; y++) {
+    for (let x = 0; x < VIEWPORT_W; x++) {
+      const i = (y * VIEWPORT_W + x) * 4;
+      const inCard =
+        x >= CARD_LEFT && x < CARD_LEFT + CARD_WIDTH && y >= CARD_TOP && y < CARD_TOP + cardHeight;
+      let r, g, b;
+      if (inCard) {
+        if ((x * 13 + y * 29) % 97 === 0) {
+          r = 100 + (x % 157);
+          g = 50 + (y % 203);
+          b = 150 + ((x * 7 + y) % 105);
+        } else {
+          r = 255; g = 255; b = 255;
+        }
+      } else {
+        r = 190 + (x % 50);
+        g = 200 + (y % 40);
+        b = 220 + ((x + y) % 20);
+      }
+      png.data[i] = r; png.data[i + 1] = g; png.data[i + 2] = b; png.data[i + 3] = 255;
+    }
+  }
+  if (markerColor) {
+    const [bx, by, bw, bh] = BADGE_RECT;
+    for (let y = by; y < by + bh; y++) {
+      for (let x = bx; x < bx + bw; x++) {
+        const i = (y * VIEWPORT_W + x) * 4;
+        png.data[i] = markerColor[0];
+        png.data[i + 1] = markerColor[1];
+        png.data[i + 2] = markerColor[2];
+      }
+    }
+  }
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, PNG.sync.write(png));
+}
+
+/**
+ * Build a complete, self-contained capture set (7 frameworks x 5 states) plus
+ * screenshot-report.json, without touching the committed screenshots.
+ */
+function writeShots(dir, { omitRects = false, frameworks = null, mutate = null } = {}) {
+  const FW = frameworks || FRAMEWORKS;
   const report = {};
-  for (const fw of FW) {
-    fs.mkdirSync(path.join(dir, fw), { recursive: true });
+  FW.forEach((fw, idx) => {
+    const markerColor = [60 + idx * 20, 130, 200 - idx * 15];
     report[fw] = {
       renderedItems: 100,
       remaining: 67,
@@ -136,60 +240,38 @@ function writeShots(dir, { omitRects = false, frameworks = null } = {}) {
       screenshots: [],
     };
     for (const s of STATES) {
-      // Real capture geometry, so the verifier's card checks are meaningful.
-      const src = path.join(SHOTS, fw, `${s}.png`);
-      if (!fs.existsSync(src)) {
-        throw new Error(`writeShots: missing source screenshot ${src} (run \`npm run capture\` first)`);
-      }
-      fs.copyFileSync(src, path.join(dir, fw, `${s}.png`));
+      const file = path.join(dir, fw, `${s}.png`);
+      writeShot(file, {
+        cardHeight: s === 'empty-state' ? EMPTY_HEIGHT : POPULATED_HEIGHT,
+        markerColor,
+      });
       report[fw].screenshots.push(`${fw}/${s}.png`);
       report[fw].labelRects[s] = omitRects
         ? {}
-        : { badge: [100, 20, 50, 24], footer: [100, 900, 400, 20] };
+        : { badge: BADGE_RECT.slice(), footer: FOOTER_RECT.slice() };
     }
-  }
+  });
+  if (mutate) mutate(dir, report);
   fs.writeFileSync(path.join(dir, 'screenshot-report.json'), JSON.stringify(report, null, 2));
   return report;
 }
 
-// A synthetic 1440x1024 screenshot with a non-white backdrop and a white card of
-// the given height. Used to prove the verifier's cross-framework height invariant
-// fails when one framework's layout diverges, without depending on a font metric.
-function writeSyntheticShot(file, cardHeight) {
-  const { PNG } = require('pngjs');
-  const W = 1440;
-  const H = 1024;
-  const png = new PNG({ width: W, height: H });
-  const cardLeft = 420;
-  const cardWidth = 600;
-  const cardTop = 114;
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      const i = (y * W + x) * 4;
-      const inCard = x >= cardLeft && x < cardLeft + cardWidth && y >= cardTop && y < cardTop + cardHeight;
-      if (inCard) {
-        // Mostly white, with scattered colour so the card is not uniform and the
-        // frame has plenty of unique colours (like a real populated capture).
-        if ((x * 13 + y * 29) % 97 === 0) {
-          png.data[i] = 120;
-          png.data[i + 1] = 60;
-          png.data[i + 2] = 200;
-        } else {
-          png.data[i] = 255;
-          png.data[i + 1] = 255;
-          png.data[i + 2] = 255;
-        }
-      } else {
-        // Non-white gradient backdrop, like the real screenshots.
-        png.data[i] = 235;
-        png.data[i + 1] = 240;
-        png.data[i + 2] = 248;
-      }
-      png.data[i + 3] = 255;
-    }
-  }
+/** Change one channel of one pixel in a PNG, for the pixel checker tests.
+ *
+ * The delta is applied in whichever direction actually changes the byte, so a
+ * poke at an already-saturated (255) pixel is not silently clamped away — the
+ * test must exercise a real 1-unit difference.
+ */
+function pokePixel(file, x, y, channel, delta) {
+  const png = PNG.sync.read(fs.readFileSync(file));
+  const i = (y * png.width + x) * 4 + channel;
+  const before = png.data[i];
+  const after = before + delta;
+  png.data[i] = after < 0 || after > 255 ? before - Math.sign(delta) : after;
+  if (png.data[i] === before) throw new Error(`pokePixel: pixel ${x},${y} did not change`);
   fs.writeFileSync(file, PNG.sync.write(png));
 }
+
 
 (async () => {
   console.log('Regression tests\n');
@@ -332,7 +414,7 @@ function writeSyntheticShot(file, cardHeight) {
     const dir = tmpDir('verify-height');
     writeShots(dir);
     for (const s of ['all', 'active', 'completed', 'input-filled']) {
-      writeSyntheticShot(path.join(dir, 'react', `${s}.png`), 700);
+      writeShot(path.join(dir, 'react', `${s}.png`), { cardHeight: 700, markerColor: [60, 130, 200] });
     }
     await test('verify fails when one framework card height diverges', () => {
       const res = run('node', [path.join(DOCS, 'verify-screenshots.js'), '--dir', dir]);
@@ -340,8 +422,16 @@ function writeSyntheticShot(file, cardHeight) {
       assert(/height disagrees/.test(res.stdout), `not reported: ${res.stdout}`);
     });
   }
-  // --- 8: pixel checker robustness ----------------------------------------
+  // --- 8 + 11: pixel checker robustness and exact equality -----------------
   console.log('\npixel checker robustness');
+  {
+    const dir = tmpDir('pixel-ok');
+    writeShots(dir);
+    await test('pixel-parity passes for a byte-identical set (framework names masked)', () => {
+      const res = run('python3', [path.join(DOCS, 'pixel-parity.py'), '--shots', dir]);
+      assert(res.status === 0, `exit ${res.status}:\n${res.stdout}`);
+    });
+  }
   {
     const dir = tmpDir('pixel-norects');
     writeShots(dir, { omitRects: true });
@@ -369,6 +459,31 @@ function writeSyntheticShot(file, cardHeight) {
       assert(/not valid JSON/i.test(res.stdout), `unclear error: ${res.stdout}`);
     });
   }
+  {
+    // The contract is byte-identity outside the mask, so a single unit of change
+    // in one channel of one pixel must fail — no colour tolerance.
+    const dir = tmpDir('pixel-1delta');
+    writeShots(dir);
+    pokePixel(path.join(dir, 'vue', 'all.png'), 700, 400, 1, 1);
+    await test('pixel-parity fails on a 1-unit RGB change outside the mask', () => {
+      const res = run('python3', [path.join(DOCS, 'pixel-parity.py'), '--shots', dir]);
+      assert(res.status !== 0, `expected non-zero exit:\n${res.stdout}`);
+      assert(/vue/.test(res.stdout), 'the diverging framework was not named');
+    });
+  }
+  {
+    // A framework-name difference inside the masked badge/footer regions is the
+    // one tolerated difference; it must keep passing.
+    const dir = tmpDir('pixel-masked');
+    writeShots(dir);
+    const file = path.join(dir, 'vue', 'all.png');
+    pokePixel(file, BADGE_RECT[0] + 3, BADGE_RECT[1] + 3, 0, 40);
+    pokePixel(file, FOOTER_RECT[0] + 3, FOOTER_RECT[1] + 3, 2, -40);
+    await test('pixel-parity ignores changes inside the mask', () => {
+      const res = run('python3', [path.join(DOCS, 'pixel-parity.py'), '--shots', dir]);
+      assert(res.status === 0, `expected a pass:\n${res.stdout}`);
+    });
+  }
 
   // --- 9: console-error policy --------------------------------------------
   console.log('\nconsole-error policy');
@@ -391,16 +506,45 @@ function writeSyntheticShot(file, cardHeight) {
     });
     await stopFixture(server);
   }
+  {
+    // An application resource that merely has "favicon" in its path is still a
+    // real failure: the policy matches the failing request URL, not the text.
+    server = await startFixture({ brokenPathWithFavicon: true });
+    const dir = tmpDir('console-faviconish');
+    const res = run('node', [path.join(DOCS, 'screenshot.js'), '--framework', `fixture:${FIXTURE_PORT}`, '--out', dir]);
+    await test('a 404 whose URL merely contains "favicon" still fails', () => {
+      assert(res.status !== 0, `expected non-zero exit, got ${res.status}`);
+      assert(/favicon-ish-asset/.test(res.stdout + res.stderr), 'the failing URL was not reported');
+    });
+    await stopFixture(server);
+  }
+  {
+    // A console error whose *text* mentions favicon but comes from a script with
+    // no favicon URL must not be silently ignored.
+    server = await startFixture({ consoleErrorTextContainsFavicon: true });
+    const dir = tmpDir('console-textonly');
+    const res = run('node', [path.join(DOCS, 'screenshot.js'), '--framework', `fixture:${FIXTURE_PORT}`, '--out', dir]);
+    await test('a console error whose text mentions favicon still fails', () => {
+      assert(res.status !== 0, `expected non-zero exit, got ${res.status}`);
+    });
+    await stopFixture(server);
+  }
+  {
+    server = await startFixture({ pageError: 'boom from the app' });
+    const dir = tmpDir('console-pageerror');
+    const res = run('node', [path.join(DOCS, 'screenshot.js'), '--framework', `fixture:${FIXTURE_PORT}`, '--out', dir]);
+    await test('a pageerror always fails the capture', () => {
+      assert(res.status !== 0, `expected non-zero exit, got ${res.status}`);
+      assert(/boom from the app/.test(res.stdout + res.stderr), 'the pageerror text was not reported');
+    });
+    await stopFixture(server);
+  }
 
-  // --- 6 + 7: parity script correctness ------------------------------------
+  // --- 6 + 7 + 10: parity script correctness -------------------------------
   console.log('\nparity script (fixture targets)');
   {
     server = await startFixture({});
-    const res = run('node', [
-      path.join(DOCS, 'parity-check.js'),
-      '--target', `fixture:${FIXTURE_PORT}`,
-      '--reference', 'fixture',
-    ]);
+    const res = runParity();
     await test('parity passes against a contract-compliant fixture', () => {
       assert(res.status === 0, `exit ${res.status}:\n${res.stdout}\n${res.stderr}`);
       assert(/toggle-all is missing|toggleAll/i.test(res.stdout) === false, 'toggle-all reported missing');
@@ -429,11 +573,7 @@ function writeSyntheticShot(file, cardHeight) {
   // 6: hostile placement proves position-based selection would fail.
   {
     server = await startFixture({ insertMiddle: true });
-    const res = run('node', [
-      path.join(DOCS, 'parity-check.js'),
-      '--target', `fixture:${FIXTURE_PORT}`,
-      '--reference', 'fixture',
-    ], { timeout: 60000 });
+    const res = runParity();
     await test('parity picks the new item by text even when it is inserted mid-list', async () => {
       assert(res.status === 0, `exit ${res.status}:\n${res.stdout}`);
       const events = await collectEvents().catch(() => []);
@@ -446,11 +586,7 @@ function writeSyntheticShot(file, cardHeight) {
   // 7: a broken toggle-all must be fatal, and a missing control must be fatal.
   {
     server = await startFixture({ toggleAllBroken: true });
-    const res = run('node', [
-      path.join(DOCS, 'parity-check.js'),
-      '--target', `fixture:${FIXTURE_PORT}`,
-      '--reference', 'fixture',
-    ], { timeout: 60000 });
+    const res = runParity();
     await test('parity fails when toggle-all does not change the list', () => {
       assert(res.status !== 0, 'expected non-zero exit for a no-op toggle-all');
       assert(/toggleAll|toggle-all/.test(res.stdout), 'toggle-all not named in the failure');
@@ -459,16 +595,150 @@ function writeSyntheticShot(file, cardHeight) {
   }
   {
     server = await startFixture({ hideToggleAll: true });
-    const res = run('node', [
-      path.join(DOCS, 'parity-check.js'),
-      '--target', `fixture:${FIXTURE_PORT}`,
-      '--reference', 'fixture',
-    ], { timeout: 60000 });
+    const res = runParity();
     await test('parity fails when the toggle-all control is absent', () => {
       assert(res.status !== 0, 'expected non-zero exit when toggle-all is missing');
       assert(/toggle-all control is missing/.test(res.stdout), `unexpected output: ${res.stdout}`);
     });
     await stopFixture(server);
+  }
+
+  // --- 10: content mismatches must fail parity, not just geometry ----------
+  console.log('\nparity content contract');
+  const contentCases = [
+    ['a wrong page title', { title: 'Todo List - Wrong' }, 'title'],
+    ['a wrong framework badge', { badge: 'NotTheBadge' }, 'badge'],
+    ['a wrong footer text', { footerText: 'Wrong footer' }, 'footer'],
+    ['a wrong stats wording', { statsSuffix: 'things left' }, 'stats'],
+    ['a wrong first item label', { itemLabelPrefix: 'Task ' }, 'firstItem'],
+    ['a missing filter button', { filterLabels: ['All', 'Active', 'Gone'] }, 'filterLabels'],
+  ];
+  for (const [label, flags, field] of contentCases) {
+    server = await startFixture(flags);
+    const res = runParity();
+    await test(`parity fails on ${label}`, () => {
+      assert(res.status !== 0, `expected non-zero exit for ${label}:\n${res.stdout}`);
+      assert(new RegExp(field, 'i').test(res.stdout), `${field} not named in the failure:\n${res.stdout}`);
+    });
+    await stopFixture(server);
+  }
+  {
+    server = await startFixture({ extraFilter: 1 });
+    const res = runParity();
+    await test('parity fails on an extra filter button', () => {
+      assert(res.status !== 0, `expected non-zero exit for an extra filter:\n${res.stdout}`);
+      assert(/filterLabels/.test(res.stdout), `filterLabels not named:\n${res.stdout}`);
+    });
+    await stopFixture(server);
+  }
+
+  // --- 12: start-servers.sh must refuse a port that is already serving ------
+  console.log('\nstale-server guard');
+  {
+    // A "stale" server: it answers HTTP on the target port before the script
+    // runs. start-servers.sh must refuse rather than report it as freshly ready,
+    // and must leave the foreign process alone.
+    const STALE_PORT_OFFSET = 1000; // react -> 5001, far from the real ports
+    const stalePort = 4001 + STALE_PORT_OFFSET;
+    const stale = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end('<!doctype html><title>stale</title>stale server');
+    });
+    await new Promise((resolve) => stale.listen(stalePort, '127.0.0.1', resolve));
+    try {
+      const res = run(
+        'bash',
+        [path.join(DOCS, 'scripts', 'start-servers.sh'), '--only', 'react',
+         '--port-offset', String(STALE_PORT_OFFSET), '--ready-timeout', '5'],
+        { timeout: 30000 }
+      );
+      await test('start-servers.sh fails when the target port is already in use', () => {
+        assert(res.status !== 0, `expected non-zero exit, got ${res.status}`);
+        assert(/already in use/.test(res.stdout + res.stderr), `no clear message:\n${res.stdout}${res.stderr}`);
+      });
+      await test('start-servers.sh does not treat the stale server as ready', () => {
+        assert(!/ready on/.test(res.stdout + res.stderr), `claimed readiness:\n${res.stdout}`);
+      });
+      await test('the pre-existing server is still alive (never killed)', async () => {
+        const ok = await fetch(`http://127.0.0.1:${stalePort}/`).then((r) => r.ok).catch(() => false);
+        assert(ok, 'the stale server was killed');
+        assert(stale.listening, 'the stale server socket was closed');
+      });
+    } finally {
+      await new Promise((resolve) => stale.close(resolve));
+    }
+  }
+
+  // --- 13: stop-servers.sh must reap the whole process group ----------------
+  console.log('\nstop-servers.sh process-group cleanup');
+  {
+    // Simulate what start-servers.sh does: launch a server under setsid so the
+    // recorded PID leads a process group, with a child process (like npm -> vite).
+    const logsDir = tmpDir('stop-logs');
+    const port = 4189;
+    const leader = spawn(
+      'setsid',
+      ['bash', '-lc', `python3 -m http.server ${port} --bind 127.0.0.1 & wait`],
+      { stdio: 'ignore' }
+    );
+    try {
+      await waitForPort(port);
+      fs.writeFileSync(path.join(logsDir, 'fixture.pid'), String(leader.pid));
+      const res = run('bash', [path.join(DOCS, 'scripts', 'stop-servers.sh')], {
+        env: { FB_LOGS_DIR: logsDir },
+        timeout: 30000,
+      });
+      await test('stop-servers.sh stops a server started under setsid', () => {
+        assert(res.status === 0, `exit ${res.status}: ${res.stdout}${res.stderr}`);
+        assert(/stopping fixture/.test(res.stdout), `did not report stopping it: ${res.stdout}`);
+      });
+      await test('stop-servers.sh leaves no orphaned child holding the port', async () => {
+        const deadline = Date.now() + 5000;
+        let up = true;
+        while (Date.now() < deadline && up) {
+          up = await fetch(`http://127.0.0.1:${port}/`).then(() => true).catch(() => false);
+          if (up) await new Promise((r) => setTimeout(r, 200));
+        }
+        assert(!up, `port ${port} is still being served after stop`);
+      });
+    } finally {
+      try { process.kill(-leader.pid, 'SIGKILL'); } catch { /* already gone */ }
+      try { leader.kill('SIGKILL'); } catch { /* already gone */ }
+    }
+  }
+
+  // --- self-containment: the suite must pass with no production captures ----
+  if (!process.env.FB_REGRESSION_RECURSION) {
+    const HIDDEN = path.join(DOCS, '.screenshots-hidden');
+    let moved = false;
+    const restore = () => {
+      if (moved && fs.existsSync(HIDDEN)) fs.renameSync(HIDDEN, SHOTS);
+      moved = false;
+    };
+    // A signal during the nested run must still restore the production
+    // captures, so a Ctrl-C does not leave the checkout missing them.
+    const onSignal = (sig) => { restore(); process.exit(130); };
+    process.once('SIGINT', onSignal);
+    process.once('SIGTERM', onSignal);
+    try {
+      if (fs.existsSync(SHOTS)) {
+        fs.rmSync(HIDDEN, { recursive: true, force: true });
+        fs.renameSync(SHOTS, HIDDEN);
+        moved = true;
+      }
+      const res = run('node', [__filename, '--require-no-captures'], {
+        timeout: 900000,
+        env: { FB_REGRESSION_RECURSION: '1' },
+      });
+      await test('the whole suite passes with production captures unavailable', () => {
+        assert(res.status === 0, `nested run failed (${res.status}):\n${tail(res.stdout)}\n${tail(res.stderr)}`);
+        assert(/ALL \d+ REGRESSION TESTS PASSED/.test(res.stdout), 'nested run did not report success');
+      });
+    } finally {
+      process.removeListener('SIGINT', onSignal);
+      process.removeListener('SIGTERM', onSignal);
+      restore();
+    }
   }
 
   console.log(`\n${failed === 0 ? `ALL ${passed} REGRESSION TESTS PASSED` : `${failed} FAILED, ${passed} passed`}`);

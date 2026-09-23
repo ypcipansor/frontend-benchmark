@@ -6,7 +6,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-LOGS="$ROOT/docs/logs"
+LOGS="${FB_LOGS_DIR:-$ROOT/docs/logs}"
 
 if [ ! -d "$LOGS" ]; then
   echo "stop-servers.sh: nothing to stop ($LOGS does not exist)"
@@ -21,15 +21,20 @@ for pidfile in "$LOGS"/*.pid; do
     rm -f "$pidfile"
     continue
   fi
-  if kill -0 "$pid" 2>/dev/null; then
+  # start-servers.sh launches each server with setsid, so $pid is a process-group
+  # leader and -$pid addresses the whole tree. Signal the group even if the
+  # leader itself has already exited, otherwise an orphaned vite/ng child would
+  # keep holding the port and stale the next run.
+  group_alive=0
+  if kill -0 -- "-$pid" 2>/dev/null; then group_alive=1; fi
+  if kill -0 "$pid" 2>/dev/null || [ "$group_alive" -eq 1 ]; then
     echo "stopping $name (pid $pid)"
-    # npm/vite spawn children; kill the whole process group if we can.
     kill -TERM "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null
     for _ in $(seq 1 20); do
-      kill -0 "$pid" 2>/dev/null || break
+      kill -0 -- "-$pid" 2>/dev/null || break
       sleep 0.25
     done
-    kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null
+    kill -KILL "-$pid" 2>/dev/null || true
   else
     echo "$name (pid $pid) already gone"
   fi

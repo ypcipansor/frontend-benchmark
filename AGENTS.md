@@ -26,7 +26,7 @@ Blade needs `composer install` first. The Rust dists reference the stylesheet as
 
 ```bash
 cd docs
-npm ci && npx playwright install chromium     # locked Node tooling
+npm ci && npx playwright install chromium     # exact Node tree from the lockfile
 python3 -m pip install -r requirements.txt    # NumPy + Pillow
 
 bash scripts/start-servers.sh   # start all seven servers on their fixed ports

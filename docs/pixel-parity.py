@@ -33,7 +33,6 @@ STATES = ['all', 'active', 'completed', 'input-filled', 'empty-state']
 REFERENCE = 'react'
 ROOT = os.path.dirname(os.path.abspath(__file__))
 SHOTS = os.path.join(ROOT, 'screenshots')
-THRESHOLD = 24
 LABEL_KEYS = ('badge', 'footer')
 
 
@@ -99,11 +98,15 @@ def clamp_box(box, height, width):
 def masked_diff(ref, other, ref_rects, other_rects):
     """Difference mask with the badge/footer boxes zeroed out.
 
+    Equality is exact per RGB channel: a single unit of change in any channel,
+    anywhere outside the two masked regions, counts as a difference. There is no
+    colour tolerance, because the contract the docs state is byte-identity.
+
     The union of the reference and candidate rectangles is masked: a short badge
     like "Yew" occupies fewer columns than "React", so masking only the
     candidate's own box would leave the reference's extra glyphs exposed.
     """
-    diff = np.abs(ref.astype(int) - other.astype(int)).sum(axis=2) > THRESHOLD
+    diff = np.any(ref != other, axis=2)
     for key in LABEL_KEYS:
         boxes = []
         for rects in (ref_rects, other_rects):

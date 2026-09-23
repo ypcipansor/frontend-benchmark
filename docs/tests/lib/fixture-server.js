@@ -75,8 +75,41 @@ function start(opts) {
         `<link rel="icon" href="/favicon.ico">\n` +
         `<script>window.FIXTURE_FLAGS = ${JSON.stringify(flags)};` +
         `window.FIXTURE_COUNT = ${Number(flags.count ?? 100)};</script>\n` +
-        (flags.brokenAsset ? '<img src="/definitely-missing-asset.png" alt="" hidden>\n' : '');
+        (flags.brokenAsset ? '<img src="/definitely-missing-asset.png" alt="" hidden>\n' : '') +
+        (flags.brokenPathWithFavicon ? '<img src="/favicon-ish-asset.png" alt="" hidden>\n' : '') +
+        (flags.consoleErrorTextContainsFavicon
+          ? '<script>console.error("error loading favicon resource");</script>\n'
+          : '') +
+        (flags.pageError
+          ? `<script>throw new Error(${JSON.stringify(flags.pageError)});</script>\n`
+          : '');
       text = text.replace('</head>', injected + '</head>');
+      // Content-contract overrides: let a test supply a wrong title/badge/footer
+      // without touching production screenshots or the fixture app's defaults.
+      if (flags.title) text = text.replace(/<title>[^<]*<\/title>/, `<title>${flags.title}</title>`);
+      if (flags.badge) {
+        text = text.replace(/(<span class="framework-badge">)[^<]*(<\/span>)/, `$1${flags.badge}$2`);
+      }
+      if (flags.footerText) {
+        text = text.replace(/(<div class="todo-footer">)[^<]*(<\/div>)/, `$1${flags.footerText}$2`);
+      }
+      // A wrong stats wording must be caught (the contract is the exact string,
+      // not "contains 67"), so allow the suffix to be replaced.
+      if (flags.statsSuffix) {
+        text = text.replace('items remaining', String(flags.statsSuffix));
+      }
+      // Wrong/extra/missing filter labels.
+      if (Array.isArray(flags.filterLabels)) {
+        text = text.replace(/>All</, `>${flags.filterLabels[0]}<`);
+        text = text.replace(/>Active</, `>${flags.filterLabels[1]}<`);
+        text = text.replace(/>Completed</, `>${flags.filterLabels[2]}<`);
+      }
+      if (Number.isInteger(flags.extraFilter) && flags.extraFilter >= 0) {
+        text = text.replace(
+          /(<button class="btn filter-btn[^"]*"[^>]*>)(All)(<\/button>)/,
+          `$1All</button><button class="btn filter-btn" aria-label="Show extra todos">Extra</button>`
+        );
+      }
       body = Buffer.from(text);
     }
     res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream' });

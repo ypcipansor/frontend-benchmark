@@ -63,6 +63,21 @@ async function clickFilter(page, label) {
   await page.waitForTimeout(400);
 }
 
+// Wait until CSS transitions/animations have finished so a capture never records
+// a mid-transition value. `.todo-input` transitions its border colour over 300ms
+// when focused, and screenshotting after a fixed delay captured a different
+// interpolation on different runs/frameworks — a real pixel diff that is pure
+// timing noise, not a rendering difference.
+async function settleAnimations(page) {
+  await page.evaluate(async () => {
+    const animations = document.getAnimations().map((a) => a.finished.catch(() => {}));
+    await Promise.race([
+      Promise.all(animations),
+      new Promise((resolve) => setTimeout(resolve, 2000)),
+    ]);
+  });
+}
+
 async function captureFramework(browser, fw, opts) {
   const base = opts.base || `http://127.0.0.1:${fw.port}`;
   const ctx = await browser.newContext({
@@ -103,9 +118,10 @@ async function captureFramework(browser, fw, opts) {
     const entries = [];
     for (const view of VIEWS) {
       if (view.key !== 'all') await clickFilter(page, view.filter);
+      await settleAnimations(page);
       await recordLabels(view.key);
       const file = path.join(dir, `${view.key}.png`);
-      await page.screenshot({ path: file, fullPage: false });
+      await page.screenshot({ path: file, fullPage: false, animations: 'disabled' });
       entries.push({ view: view.key, file });
     }
     // Return to All
@@ -113,10 +129,10 @@ async function captureFramework(browser, fw, opts) {
 
     // Input-filled state (exercises the controlled input path)
     await page.locator('.todo-input').first().fill('Benchmark smoke test');
-    await page.waitForTimeout(200);
+    await settleAnimations(page);
     await recordLabels('input-filled');
     const added = path.join(dir, 'input-filled.png');
-    await page.screenshot({ path: added, fullPage: false });
+    await page.screenshot({ path: added, fullPage: false, animations: 'disabled' });
     entries.push({ view: 'input-filled', file: added });
     await page.locator('.todo-input').first().fill('');
 
@@ -154,9 +170,10 @@ async function captureFramework(browser, fw, opts) {
       throw new Error('empty-state: .empty-state is not visible after deleting every todo');
     }
 
+    await settleAnimations(page);
     await recordLabels('empty-state');
     const emptyFile = path.join(dir, 'empty-state.png');
-    await page.screenshot({ path: emptyFile, fullPage: false });
+    await page.screenshot({ path: emptyFile, fullPage: false, animations: 'disabled' });
     entries.push({ view: 'empty-state', file: emptyFile });
 
     return {
