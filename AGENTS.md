@@ -69,14 +69,19 @@ gives a scoped check for that one framework.
   during capture — not hardcoded rows. Each rectangle is cleared on its own (never
   the bounding hull of the two), so a difference in the gap between them still
   fails. Anything else must be byte-identical.
-- **Server start/stop is identity-checked.** `start-servers.sh` writes an atomic
-  `docs/logs/<framework>.state` recording the PID, process-group id,
-  `/proc/<pid>/stat` starttime, boot id and command line. `stop-servers.sh` only
-  signals a PID after proving it still matches that identity and still leads the
-  group; otherwise it quarantines the record and warns. A recycled PID or a stale
-  legacy `.pid` file is never trusted, so a stale record cannot kill a foreign
-  process. Unknown `--only` and malformed numeric flags exit 2 before anything
-  starts.
+- **Server start/stop is identity-checked.** `start-servers.sh` launches each
+  server through `scripts/lib/serve.sh` under `setsid`; the wrapper writes the
+  atomic `docs/logs/<framework>.state` (PID, process-group id, `/proc/<pid>/stat`
+  starttime, boot id, run token, command line) from *inside* the new session and
+  then `exec`s the server. Writing it in the child matters: reading `/proc` in the
+  parent raced and sometimes recorded the launcher's group instead of the
+  server's, so `stop-servers.sh` refused to signal a live server. `stop-servers.sh`
+  signals a PID only after proving it still matches that identity and still leads
+  the group; otherwise it quarantines the record and warns. The stored command
+  line is diagnostic only — npm and `setsid` rewrite their own titles. A recycled
+  PID or a stale legacy `.pid` file is never trusted, so a stale record cannot
+  kill a foreign process. Unknown `--only` and malformed numeric flags exit 2
+  before anything starts.
 - **Never hardcode the card height.** Text metrics differ per platform: the same
   capture is 792px tall on the Ubuntu CI runner and 796px on this sandbox. The
   verifier therefore checks left/width exactly and, for height, requires the seven

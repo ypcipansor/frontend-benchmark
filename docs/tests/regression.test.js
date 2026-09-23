@@ -1049,6 +1049,52 @@ function pokePixel(file, x, y, channel, delta) {
     }
   }
 
+  // --- serve.sh records an unraced identity from inside the new session -----
+  {
+    // start-servers.sh launches the server through serve.sh under setsid and
+    // does NOT write the state file itself. Reading /proc/<pid> in the parent
+    // raced: before the child's setsid() completed, pgrp was still the
+    // launcher's, so a server was recorded with a foreign process group and
+    // stop-servers.sh later refused to signal it (leaving it holding its port).
+    // serve.sh writes its own state after setsid, then execs the server.
+    const logsDir = tmpDir('serve-logs');
+    const port = 4199;
+    const state = path.join(logsDir, 'fixture.state');
+    const child = spawn(
+      'setsid',
+      ['bash', path.join(DOCS, 'scripts', 'lib', 'serve.sh'), state, 'tok',
+        'python3', '-m', 'http.server', String(port), '--bind', '127.0.0.1'],
+      { stdio: 'ignore' }
+    );
+    try {
+      await waitForPort(port);
+      const deadline = Date.now() + 5000;
+      while (!fs.existsSync(state) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+      await test('serve.sh stamps pid == pgid so the group leader identity is real', () => {
+        assert(fs.existsSync(state), 'serve.sh did not write the state file');
+        const fields = Object.fromEntries(
+          fs.readFileSync(state, 'utf8').split('\n').filter(Boolean)
+            .filter((l) => !l.startsWith('#')).map((l) => l.split(/=(.*)/s).slice(0, 2))
+        );
+        assert(fields.pid && fields.pgid, `state missing pid/pgid: ${JSON.stringify(fields)}`);
+        assert(fields.pid === fields.pgid, `pid ${fields.pid} != pgid ${fields.pgid} (recorded the launcher's group)`);
+        assert(fields.run_token === 'tok', `run_token not recorded: ${fields.run_token}`);
+      });
+      await test('stop-servers.sh stops a serve.sh-launched server on the first try', () => {
+        const res = run('bash', [path.join(DOCS, 'scripts', 'stop-servers.sh')], {
+          env: { FB_LOGS_DIR: logsDir },
+          timeout: 30000,
+        });
+        assert(res.status === 0, `exit ${res.status}: ${res.stdout}${res.stderr}`);
+        assert(/stopping fixture/.test(res.stdout), `identity did not verify: ${res.stdout}${res.stderr}`);
+        assert(!/refusing/.test(res.stdout + res.stderr), `server was wrongly refused: ${res.stdout}${res.stderr}`);
+      });
+    } finally {
+      try { process.kill(-child.pid, 'SIGKILL'); } catch { /* already gone */ }
+      try { child.kill('SIGKILL'); } catch { /* already gone */ }
+    }
+  }
+
   // --- self-containment: the suite must pass with no production captures ----
   if (!process.env.FB_REGRESSION_RECURSION) {
     const HIDDEN = path.join(DOCS, '.screenshots-hidden');

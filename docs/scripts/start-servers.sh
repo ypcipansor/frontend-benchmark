@@ -103,23 +103,16 @@ start() {
   local name="$1"; shift
   if ! want "$name"; then return; fi
   echo "starting $name ..."
-  # Run each server in its own session (setsid), so the recorded PID is a process
-  # group leader. stop-servers.sh can then verify that identity and terminate the
-  # whole tree with `kill -TERM -$pid`; without this, killing the npm wrapper can
-  # re-parent and orphan the vite/ng child, which keeps the port busy and stales
-  # the next run.
-  setsid "$@" >"$LOGS/$name.log" 2>&1 &
+  # Run each server in its own session (setsid) via serve.sh, which records the
+  # state file from *inside* the new session and then `exec`s the server. Doing
+  # the write in the child removes the race where the parent reads /proc/<pid>
+  # before setsid() has run and records the launcher's group instead. The
+  # recorded pid is a process-group leader, so stop-servers.sh can terminate the
+  # whole tree with `kill -TERM -$pid` and no vite/ng child is orphaned.
+  setsid bash "$ROOT/docs/scripts/lib/serve.sh" "$LOGS/$name.state" "$RUN_TOKEN" "$@" \
+    >"$LOGS/$name.log" 2>&1 &
   local pid=$!
   STARTED_PIDS+=("$pid")
-  # A command identity that survives for the process lifetime, so stop-servers.sh
-  # can prove the PID still belongs to this run even if it was recycled.
-  local cmd
-  cmd="$(proc_cmdline "$pid")"
-  if ! write_state "$LOGS/$name.state" "$pid" "$RUN_TOKEN" "$cmd"; then
-    echo "  $name: could not record start metadata for pid $pid" >&2
-    FAILED=1
-    return 1
-  fi
 }
 
 # True when something already accepts TCP connections on the port. Uses bash's
@@ -221,13 +214,20 @@ stop_started() {
 wait_port() {
   local name="$1" port="$2"
   if ! want "$name"; then return; fi
-  local pid; pid="$(state_pid_for "$name")"
+  # serve.sh writes the state file from inside the new session, just after
+  # setsid forks, so it may not exist yet on the first read. Poll for it until
+  # the deadline instead of failing on the very first probe.
+  local deadline=$(( $(date +%s) + READY_TIMEOUT ))
+  local pid=""
+  while [ -z "$pid" ] && [ "$(date +%s)" -lt "$deadline" ]; do
+    pid="$(state_pid_for "$name")"
+    [ -n "$pid" ] || sleep 1
+  done
   if [ -z "$pid" ]; then
     echo "  $name: no PID recorded; cannot verify readiness" >&2
     FAILED=1
     return 1
   fi
-  local deadline=$(( $(date +%s) + READY_TIMEOUT ))
   while [ "$(date +%s)" -lt "$deadline" ]; do
     # The PID we launched must still be alive before we accept an HTTP response:
     # otherwise the response could come from something else entirely.
