@@ -17,6 +17,8 @@ const { PNG } = require('pngjs');
 const FRAMEWORKS = ['react', 'vue', 'angular', 'leptos', 'yew', 'dioxus', 'blade'];
 const STATES = ['all', 'active', 'completed', 'input-filled', 'empty-state'];
 const EXPECTED_REPORT = { renderedItems: 100, remaining: 67 };
+// Must match REPORT_SCHEMA in screenshot.js.
+const EXPECTED_SCHEMA = 2;
 
 const EXPECTED = {
   // Card geometry in CSS pixels at a 1440x1024 viewport (2x DPR screenshots are
@@ -36,8 +38,18 @@ const EXPECTED = {
 
 function parseArgs() {
   const a = process.argv.slice(2);
-  const o = { dir: 'docs/screenshots' };
-  for (let i = 0; i < a.length; i++) if (a[i] === '--dir') o.dir = a[++i];
+  const o = { dir: 'docs/screenshots', framework: null };
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] === '--dir') o.dir = a[++i];
+    else if (a[i] === '--framework') o.framework = a[++i];
+  }
+  if (o.framework && !FRAMEWORKS.includes(o.framework)) {
+    console.error(
+      `verify-screenshots.js: unknown --framework "${o.framework}"; ` +
+      `expected one of: ${FRAMEWORKS.join(', ')}`
+    );
+    process.exit(2);
+  }
   return o;
 }
 
@@ -110,7 +122,59 @@ function loadReport(dir) {
   }
 }
 
-function checkReport(dir) {
+/**
+ * Prove the set is one capture generation. In full mode all seven entries must
+ * carry the same captureRunId, so artefacts from different invocations can never
+ * be presented as a single fresh set (an incremental capture writes a new id).
+ * A scoped run still requires the entry to carry freshness metadata.
+ */
+function checkFreshness(report, frameworks, { fullSet }) {
+  let failures = 0;
+  const fail = (msg) => { failures++; console.log(`  FAIL freshness${msg}`); };
+
+  const meta = report && typeof report === 'object' ? report.__meta : null;
+  if (!meta || typeof meta !== 'object') {
+    fail(': report has no __meta freshness block (capture run/structure unknown)');
+    return failures;
+  }
+  if (meta.schema !== EXPECTED_SCHEMA) {
+    fail(`: report schema ${meta.schema} != expected ${EXPECTED_SCHEMA}`);
+  }
+
+  const runIds = new Map();
+  for (const fw of frameworks) {
+    const entry = report[fw];
+    if (!entry || entry.failed) continue; // other checks report these
+    if (!entry.captureRunId && !meta.captureRunId) {
+      fail(`: ${fw} has no captureRunId (cannot prove freshness)`);
+      continue;
+    }
+    // An incremental capture writes a fresh __meta.captureRunId but keeps the
+    // other frameworks' older entries, so their per-entry id differs. A full
+    // verification must reject that: the seven entries must share one id.
+    const ids = new Set([entry.captureRunId, meta.captureRunId].filter(Boolean));
+    if (ids.size > 1) {
+      fail(`: ${fw} captureRunId ${entry.captureRunId} != report ${meta.captureRunId}`);
+    }
+    runIds.set(fw, entry.captureRunId);
+  }
+  if (fullSet) {
+    const unique = new Set([...runIds.values(), meta.captureRunId].filter(Boolean));
+    if (unique.size > 1) {
+      fail(
+        `: frameworks were captured in different generations ` +
+        `(${unique.size} distinct captureRunId values): ` +
+        [...runIds.entries()].map(([k, v]) => `${k}=${v}`).join(', ')
+      );
+    }
+    if (meta.fullSet !== true) {
+      fail(`: report __meta.fullSet is ${meta.fullSet} (an incremental capture cannot claim a full set)`);
+    }
+  }
+  return failures;
+}
+
+function checkReport(dir, frameworks) {
   let failures = 0;
   const fail = (msg) => { failures++; console.log(`  FAIL report${msg}`); };
   const { report, error } = loadReport(dir);
@@ -118,7 +182,7 @@ function checkReport(dir) {
     fail(`: ${error}`);
     return failures;
   }
-  for (const fw of FRAMEWORKS) {
+  for (const fw of frameworks) {
     const entry = report[fw];
     if (!entry) { fail(`: no entry for ${fw}`); continue; }
     if (entry.failed || entry.error) { fail(`: ${fw} recorded ${entry.error}`); continue; }
@@ -152,25 +216,37 @@ function main() {
     process.exit(1);
   }
 
+  // Full verification demands all seven frameworks in a single capture
+  // generation. A scoped run checks one framework, but still requires it to
+  // carry freshness metadata — and never claims the full set is fresh.
+  const fullSet = !opts.framework;
+  const frameworks = opts.framework ? [opts.framework] : FRAMEWORKS;
+
   let failures = 0;
   const t0 = Date.now();
+  if (opts.framework) console.log(`Scoped verification: ${opts.framework} only`);
 
   const entries = fs.readdirSync(opts.dir, { withFileTypes: true }).filter((d) => d.isDirectory());
   const found = entries.map((d) => d.name).sort();
   console.log(`Framework directories found: ${found.join(', ') || '(none)'}`);
-  const missingFw = FRAMEWORKS.filter((f) => !found.includes(f));
-  const extraFw = found.filter((f) => !FRAMEWORKS.includes(f));
-  if (missingFw.length) {
+  if (fullSet) {
+    const missingFw = FRAMEWORKS.filter((f) => !found.includes(f));
+    const extraFw = found.filter((f) => !FRAMEWORKS.includes(f));
+    if (missingFw.length) {
+      failures++;
+      console.log(`  FAIL missing framework directory: ${missingFw.join(', ')}`);
+    }
+    if (extraFw.length) {
+      failures++;
+      console.log(`  FAIL unexpected framework directory: ${extraFw.join(', ')}`);
+    }
+  } else if (!found.includes(opts.framework)) {
     failures++;
-    console.log(`  FAIL missing framework directory: ${missingFw.join(', ')}`);
-  }
-  if (extraFw.length) {
-    failures++;
-    console.log(`  FAIL unexpected framework directory: ${extraFw.join(', ')}`);
+    console.log(`  FAIL missing framework directory: ${opts.framework}`);
   }
 
   const cardHeights = {}; // framework -> { state: cssHeight }
-  for (const fw of FRAMEWORKS) {
+  for (const fw of frameworks) {
     const dir = path.join(opts.dir, fw);
     if (!fs.existsSync(dir)) continue;
     const files = fs.readdirSync(dir).filter((f) => f.endsWith('.png')).sort();
@@ -241,7 +317,18 @@ function main() {
   }
 
   console.log('\n--- screenshot-report.json ---');
-  failures += checkReport(opts.dir);
+  failures += checkReport(opts.dir, frameworks);
+
+  console.log('\n--- capture generation ---');
+  {
+    const { report, error } = loadReport(opts.dir);
+    if (error) {
+      failures++;
+      console.log(`  FAIL freshness: ${error}`);
+    } else {
+      failures += checkFreshness(report, frameworks, { fullSet });
+    }
+  }
 
   console.log(`\n${failures === 0 ? 'ALL SCREENSHOTS OK' : failures + ' SCREENSHOT(S) FAILED'} (${Date.now() - t0}ms)`);
   process.exit(failures === 0 ? 0 : 1);

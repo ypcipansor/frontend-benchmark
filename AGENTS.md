@@ -24,9 +24,14 @@ Blade needs `composer install` first. The Rust dists reference the stylesheet as
 
 ## Verifying changes
 
+The `docs/` tooling needs **Node.js 20+** (Playwright 1.63 declares
+`engines.node >= 20`); `docs/package.json` has the same `engines` field and
+`npm run check:node` enforces it. The implementations themselves build on Node
+18+.
+
 ```bash
 cd docs
-npm ci && npx playwright install chromium     # exact Node tree from the lockfile
+npm run check:node && npm ci && npx playwright install chromium   # exact Node tree from the lockfile
 python3 -m pip install -r requirements.txt    # NumPy + Pillow
 
 bash scripts/start-servers.sh   # start all seven servers on their fixed ports
@@ -40,10 +45,17 @@ npm test          # regression tests for the tooling's failure modes
 bash scripts/stop-servers.sh
 ```
 
-A capture that fails now deletes the affected framework's screenshots and exits
+A capture that fails deletes the affected framework's screenshots and exits
 non-zero, so a stale image can never be mistaken for a fresh one. `npm run pixel`
 reads the saved screenshots and `screenshot-report.json`, so it works without any
 server running. `npm run parity` and `npm run capture` need all seven servers up.
+
+`npm run capture` is a full generation: it stamps every entry with one
+`captureRunId` and writes `__meta`. `npm run verify` (full mode) requires all
+seven entries to share that id, so an incremental `npm run capture:react` — which
+stamps a new id for one framework — leaves the set unfit for a full verification
+rather than silently mixing generations. `npm run verify --framework <name>`
+gives a scoped check for that one framework.
 
 ## Gotchas
 
@@ -54,7 +66,17 @@ server running. `npm run parity` and `npm run capture` need all seven servers up
 
 - **Pixel parity is strict.** The only tolerated differences are the header badge
   and the footer, and even those masks come from live element geometry recorded
-  during capture — not hardcoded rows. Anything else must be byte-identical.
+  during capture — not hardcoded rows. Each rectangle is cleared on its own (never
+  the bounding hull of the two), so a difference in the gap between them still
+  fails. Anything else must be byte-identical.
+- **Server start/stop is identity-checked.** `start-servers.sh` writes an atomic
+  `docs/logs/<framework>.state` recording the PID, process-group id,
+  `/proc/<pid>/stat` starttime, boot id and command line. `stop-servers.sh` only
+  signals a PID after proving it still matches that identity and still leads the
+  group; otherwise it quarantines the record and warns. A recycled PID or a stale
+  legacy `.pid` file is never trusted, so a stale record cannot kill a foreign
+  process. Unknown `--only` and malformed numeric flags exit 2 before anything
+  starts.
 - **Never hardcode the card height.** Text metrics differ per platform: the same
   capture is 792px tall on the Ubuntu CI runner and 796px on this sandbox. The
   verifier therefore checks left/width exactly and, for height, requires the seven

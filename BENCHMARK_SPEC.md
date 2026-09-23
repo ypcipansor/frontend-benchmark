@@ -71,7 +71,7 @@ To make the card the only flex child of `<body>`, the shared stylesheet neutrali
 Parity is checked at two levels:
 
 - [`docs/parity-check.js`](docs/parity-check.js) asserts DOM structure, geometry, content and state.
-- [`docs/pixel-parity.py`](docs/pixel-parity.py) diffs each framework's screenshot against the React reference in every UI state and fails on any difference outside the two regions that hold the framework name (the header badge and the footer).
+- [`docs/pixel-parity.py`](docs/pixel-parity.py) diffs each framework's screenshot against the React reference in every UI state and fails on any difference outside the two regions that hold the framework name (the header badge and the footer). Each of those two rectangles is masked on its own (never their bounding hull), so a difference in the gap between them still fails. The report must be a single capture generation: all seven entries share one `captureRunId`.
 
 Because that pixel check is strict, the remaining-count line must be segmented identically everywhere: wrap the digits in their own element rather than emitting `<count> items remaining` as a single merged text node. Different text-node segmentation changes subpixel glyph shaping and produces a real diff even when the rendered text is the same.
 

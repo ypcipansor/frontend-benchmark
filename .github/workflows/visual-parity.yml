@@ -67,6 +67,10 @@ jobs:
             implementations/yew
             implementations/dioxus
 
+      - name: Check Node.js version for the docs tooling
+        working-directory: docs
+        run: npm run check:node
+
       - name: Install docs tooling (npm ci)
         working-directory: docs
         run: |

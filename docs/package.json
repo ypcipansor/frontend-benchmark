@@ -3,7 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "description": "Screenshot capture, visual-parity verification and README gallery tooling for the 7-framework Todo benchmark",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
+    "check:node": "node check-node-version.js",
     "capture": "node screenshot.js --out screenshots",
     "capture:react": "node screenshot.js --framework react --out screenshots",
     "capture:vue": "node screenshot.js --framework vue --out screenshots",

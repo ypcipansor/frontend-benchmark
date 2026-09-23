@@ -2,9 +2,11 @@
 # Start the seven benchmark implementations on their fixed ports and wait until
 # each one answers. Used by CI and by anyone running the parity gate locally.
 #
-# Every server logs to docs/logs/<framework>.log; its PID is written to
-# docs/logs/<framework>.pid so stop-servers.sh can terminate exactly those
-# processes (never a broad pkill).
+# Every server logs to docs/logs/<framework>.log; an atomic state file recording
+# its PID, process-group id, /proc starttime and a per-run token is written to
+# docs/logs/<framework>.state. stop-servers.sh uses that identity to terminate
+# exactly the processes this run started -- never a broad pkill, and never a
+# recycled PID that now belongs to something else.
 #
 # A port that is already in use is a hard error: the script refuses to start so a
 # pre-existing (possibly stale) server can never be mistaken for the one it just
@@ -16,17 +18,65 @@
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=lib/procstate.sh
+. "$ROOT/docs/scripts/lib/procstate.sh"
 LOGS="${FB_LOGS_DIR:-$ROOT/docs/logs}"
 READY_TIMEOUT=120
 ONLY=""
 PORT_OFFSET=0
 
+FRAMEWORKS="react vue angular leptos yew dioxus blade"
+
+usage() {
+  echo "usage: start-servers.sh [--ready-timeout <seconds>] [--only <framework>]" >&2
+  echo "                        [--port-offset <n>]" >&2
+  echo "  --only must be one of: $FRAMEWORKS" >&2
+}
+
+# Reject a value that is empty or not a plain non-negative integer. Without this
+# an arg like `--port-offset abc` reaches arithmetic expansion and produces a
+# confusing shell error (or worse, a silently wrong port).
+require_uint() {
+  local flag="$1" value="$2" max="${3:-}"
+  if [ -z "$value" ]; then
+    echo "start-servers.sh: $flag requires a value" >&2
+    usage; exit 2
+  fi
+  case "$value" in
+    ''|*[!0-9]*)
+      echo "start-servers.sh: $flag expects a non-negative integer, got '$value'" >&2
+      exit 2 ;;
+  esac
+  if [ -n "$max" ] && [ "$value" -gt "$max" ]; then
+    echo "start-servers.sh: $flag expects a value <= $max, got '$value'" >&2
+    exit 2
+  fi
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
-    --ready-timeout) READY_TIMEOUT="$2"; shift 2 ;;
-    --only) ONLY="$2"; shift 2 ;;
-    --port-offset) PORT_OFFSET="$2"; shift 2 ;;
-    *) echo "start-servers.sh: unknown argument $1" >&2; exit 2 ;;
+    --ready-timeout)
+      shift
+      require_uint "--ready-timeout" "${1:-}"
+      READY_TIMEOUT="$1"; shift ;;
+    --only)
+      shift
+      ONLY="${1:-}"
+      if [ -z "$ONLY" ]; then
+        echo "start-servers.sh: --only requires a framework name" >&2
+        usage; exit 2
+      fi
+      case " $FRAMEWORKS " in
+        *" $ONLY "*) ;;
+        *) echo "start-servers.sh: unknown --only target '$ONLY'" >&2
+           usage; exit 2 ;;
+      esac
+      shift ;;
+    --port-offset)
+      shift
+      require_uint "--port-offset" "${1:-}" 10000
+      PORT_OFFSET="$1"; shift ;;
+    *) echo "start-servers.sh: unknown argument $1" >&2; usage; exit 2 ;;
   esac
 done
 
@@ -42,6 +92,7 @@ PORT_BLADE=$((4007 + PORT_OFFSET))
 
 mkdir -p "$LOGS"
 FAILED=0
+RUN_TOKEN="$(new_run_token)"
 
 want() { [ -z "$ONLY" ] || [ "$1" = "$ONLY" ]; }
 
@@ -53,13 +104,22 @@ start() {
   if ! want "$name"; then return; fi
   echo "starting $name ..."
   # Run each server in its own session (setsid), so the recorded PID is a process
-  # group leader. stop-servers.sh can then terminate the whole tree with
-  # `kill -TERM -$pid`; without this, killing the npm wrapper can re-parent and
-  # orphan the vite/ng child, which keeps the port busy and stales the next run.
+  # group leader. stop-servers.sh can then verify that identity and terminate the
+  # whole tree with `kill -TERM -$pid`; without this, killing the npm wrapper can
+  # re-parent and orphan the vite/ng child, which keeps the port busy and stales
+  # the next run.
   setsid "$@" >"$LOGS/$name.log" 2>&1 &
   local pid=$!
-  echo "$pid" >"$LOGS/$name.pid"
   STARTED_PIDS+=("$pid")
+  # A command identity that survives for the process lifetime, so stop-servers.sh
+  # can prove the PID still belongs to this run even if it was recycled.
+  local cmd
+  cmd="$(proc_cmdline "$pid")"
+  if ! write_state "$LOGS/$name.state" "$pid" "$RUN_TOKEN" "$cmd"; then
+    echo "  $name: could not record start metadata for pid $pid" >&2
+    FAILED=1
+    return 1
+  fi
 }
 
 # True when something already accepts TCP connections on the port. Uses bash's
@@ -72,7 +132,7 @@ port_in_use() {
   return 0
 }
 
-pid_for() { cat "$LOGS/$1.pid" 2>/dev/null || true; }
+state_pid_for() { state_get "$LOGS/$1.state" pid; }
 
 # Preflight: refuse to start when a target port is already taken. This is what
 # prevents a stale server from being reported as freshly ready. It runs before
@@ -82,7 +142,7 @@ declare -A PORT_OF=(
   [leptos]="$PORT_LEPTOS" [yew]="$PORT_YEW" [dioxus]="$PORT_DIOXUS"
   [blade]="$PORT_BLADE"
 )
-for name in react vue angular leptos yew dioxus blade; do
+for name in $FRAMEWORKS; do
   want "$name" || continue
   port="${PORT_OF[$name]}"
   if port_in_use "$port"; then
@@ -158,12 +218,10 @@ stop_started() {
   done
 }
 
-# Preflight already ran before anything was launched.
-
 wait_port() {
   local name="$1" port="$2"
   if ! want "$name"; then return; fi
-  local pid; pid="$(pid_for "$name")"
+  local pid; pid="$(state_pid_for "$name")"
   if [ -z "$pid" ]; then
     echo "  $name: no PID recorded; cannot verify readiness" >&2
     FAILED=1

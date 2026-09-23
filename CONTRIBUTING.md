@@ -47,10 +47,13 @@ Thank you for your interest in contributing to the Frontend Framework Benchmark 
 
 ### Verifying Your Implementation
 
-Visual parity is enforced, not optional. Start your dev server on its benchmark port, then:
+Visual parity is enforced, not optional. The `docs/` tooling requires **Node.js
+20+** (Playwright 1.63); `npm run check:node` fails fast on an older runtime.
+Start your dev server on its benchmark port, then:
 
 ```bash
 cd docs
+npm run check:node
 npm ci
 npx playwright install chromium
 python3 -m pip install -r requirements.txt

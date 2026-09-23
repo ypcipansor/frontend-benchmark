@@ -86,7 +86,20 @@
       "react/completed.png",
       "react/input-filled.png",
       "react/empty-state.png"
-    ]
+    ],
+    "captureRunId": "mudreiut-155v-q5z2bkt1",
+    "capturedAt": "2026-09-23T07:06:52.569Z",
+    "schema": 2,
+    "viewport": {
+      "width": 1440,
+      "height": 1024,
+      "deviceScaleFactor": 1
+    },
+    "captureParams": {
+      "out": "screenshots",
+      "scope": "all"
+    },
+    "fullSet": true
   },
   "vue": {
     "url": "http://127.0.0.1:4002/",
@@ -175,7 +188,20 @@
       "vue/completed.png",
       "vue/input-filled.png",
       "vue/empty-state.png"
-    ]
+    ],
+    "captureRunId": "mudreiut-155v-q5z2bkt1",
+    "capturedAt": "2026-09-23T07:07:36.764Z",
+    "schema": 2,
+    "viewport": {
+      "width": 1440,
+      "height": 1024,
+      "deviceScaleFactor": 1
+    },
+    "captureParams": {
+      "out": "screenshots",
+      "scope": "all"
+    },
+    "fullSet": true
   },
   "angular": {
     "url": "http://127.0.0.1:4003/",
@@ -264,7 +290,20 @@
       "angular/completed.png",
       "angular/input-filled.png",
       "angular/empty-state.png"
-    ]
+    ],
+    "captureRunId": "mudreiut-155v-q5z2bkt1",
+    "capturedAt": "2026-09-23T07:08:22.017Z",
+    "schema": 2,
+    "viewport": {
+      "width": 1440,
+      "height": 1024,
+      "deviceScaleFactor": 1
+    },
+    "captureParams": {
+      "out": "screenshots",
+      "scope": "all"
+    },
+    "fullSet": true
   },
   "leptos": {
     "url": "http://127.0.0.1:4004/",
@@ -353,7 +392,20 @@
       "leptos/completed.png",
       "leptos/input-filled.png",
       "leptos/empty-state.png"
-    ]
+    ],
+    "captureRunId": "mudreiut-155v-q5z2bkt1",
+    "capturedAt": "2026-09-23T07:09:07.427Z",
+    "schema": 2,
+    "viewport": {
+      "width": 1440,
+      "height": 1024,
+      "deviceScaleFactor": 1
+    },
+    "captureParams": {
+      "out": "screenshots",
+      "scope": "all"
+    },
+    "fullSet": true
   },
   "yew": {
     "url": "http://127.0.0.1:4005/",
@@ -442,7 +494,20 @@
       "yew/completed.png",
       "yew/input-filled.png",
       "yew/empty-state.png"
-    ]
+    ],
+    "captureRunId": "mudreiut-155v-q5z2bkt1",
+    "capturedAt": "2026-09-23T07:09:51.392Z",
+    "schema": 2,
+    "viewport": {
+      "width": 1440,
+      "height": 1024,
+      "deviceScaleFactor": 1
+    },
+    "captureParams": {
+      "out": "screenshots",
+      "scope": "all"
+    },
+    "fullSet": true
   },
   "dioxus": {
     "url": "http://127.0.0.1:4006/",
@@ -531,7 +596,20 @@
       "dioxus/completed.png",
       "dioxus/input-filled.png",
       "dioxus/empty-state.png"
-    ]
+    ],
+    "captureRunId": "mudreiut-155v-q5z2bkt1",
+    "capturedAt": "2026-09-23T07:10:35.493Z",
+    "schema": 2,
+    "viewport": {
+      "width": 1440,
+      "height": 1024,
+      "deviceScaleFactor": 1
+    },
+    "captureParams": {
+      "out": "screenshots",
+      "scope": "all"
+    },
+    "fullSet": true
   },
   "blade": {
     "url": "http://127.0.0.1:4007/",
@@ -620,6 +698,25 @@
       "blade/completed.png",
       "blade/input-filled.png",
       "blade/empty-state.png"
-    ]
+    ],
+    "captureRunId": "mudreiut-155v-q5z2bkt1",
+    "capturedAt": "2026-09-23T07:11:20.989Z",
+    "schema": 2,
+    "viewport": {
+      "width": 1440,
+      "height": 1024,
+      "deviceScaleFactor": 1
+    },
+    "captureParams": {
+      "out": "screenshots",
+      "scope": "all"
+    },
+    "fullSet": true
+  },
+  "__meta": {
+    "schema": 2,
+    "fullSet": true,
+    "captureRunId": "mudreiut-155v-q5z2bkt1",
+    "capturedAt": "2026-09-23T07:11:20.993Z"
   }
 }

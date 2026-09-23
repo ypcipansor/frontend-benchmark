@@ -29,11 +29,21 @@ const FRAMEWORKS = [
 
 const EXPECTED_TOTAL = 100;
 
+// Bumped whenever the report shape or the capture procedure changes, so a
+// verifier can reject artefacts produced by an incompatible generation instead
+// of silently trusting them.
+const REPORT_SCHEMA = 2;
+
 const VIEWS = [
   { key: 'all',       filter: 'All' },
   { key: 'active',    filter: 'Active' },
   { key: 'completed', filter: 'Completed' },
 ];
+
+function newCaptureRunId() {
+  const rand = Math.random().toString(36).slice(2, 10);
+  return `${Date.now().toString(36)}-${process.pid.toString(36)}-${rand}`;
+}
 
 function fail(message) {
   console.error(`\nscreenshot.js: ${message}`);
@@ -115,6 +125,11 @@ async function captureFramework(browser, fw, opts) {
       });
     };
 
+    // The viewport and device scale factor are part of the capture parameters:
+    // two runs with different values produce incomparable images, so they are
+    // recorded and compared alongside the run id.
+    const viewport = { width: opts.width, height: opts.height, deviceScaleFactor: 1 };
+
     const entries = [];
     for (const view of VIEWS) {
       if (view.key !== 'all') await clickFilter(page, view.filter);
@@ -187,6 +202,15 @@ async function captureFramework(browser, fw, opts) {
       labelRects,
       errors,
       screenshots: entries.map((e) => path.relative(opts.out, e.file)),
+      // Freshness provenance: which run produced this entry, with which capture
+      // parameters. The verifier requires all seven entries to agree, so a
+      // full-set claim can never mix artefacts from different invocations.
+      captureRunId: opts.captureRunId,
+      capturedAt: new Date().toISOString(),
+      schema: REPORT_SCHEMA,
+      viewport,
+      captureParams: { out: opts.out, scope: opts.framework || 'all' },
+      fullSet: !opts.framework,
     };
   } catch (err) {
     // Invalidate the whole framework: a partial set or a stale screenshot must
@@ -224,14 +248,33 @@ async function captureFramework(browser, fw, opts) {
   }
   if (list.length === 0) fail('no frameworks to capture');
 
+  // Every invocation gets its own run id. A full capture writes all seven
+  // entries with the same id; an incremental one writes a *different* id for the
+  // single framework it touches, which invalidates the whole set for a full
+  // verification (the verifier requires one shared id). That is deliberate: a
+  // partial run must never be able to claim "35 screenshots fresh".
+  opts.captureRunId = newCaptureRunId();
+
   fs.mkdirSync(opts.out, { recursive: true });
   const reportPath = path.join(opts.out, 'screenshot-report.json');
 
   // A full run starts from an empty report so removed frameworks cannot linger.
+  // An incremental run keeps the other frameworks' entries but records that the
+  // set is no longer a single full generation.
+  const isFullSet = !opts.framework;
   let report = {};
-  if (opts.framework && fs.existsSync(reportPath)) {
+  if (!isFullSet && fs.existsSync(reportPath)) {
     try { report = JSON.parse(fs.readFileSync(reportPath, 'utf8')); } catch { report = {}; }
+    if (!report || typeof report !== 'object' || Array.isArray(report)) report = {};
   }
+
+  // Write the report atomically: a temp file in the same directory plus rename,
+  // so an interrupted run can never leave a half-written file that still parses.
+  const writeReport = (obj) => {
+    const tmp = `${reportPath}.tmp.${process.pid}`;
+    fs.writeFileSync(tmp, JSON.stringify(obj, null, 2));
+    fs.renameSync(tmp, reportPath);
+  };
 
   const failures = [];
   let browser;
@@ -250,13 +293,19 @@ async function captureFramework(browser, fw, opts) {
       } catch (e) {
         console.log(`FAILED: ${e.message}`);
         delete report[fw.name];
-        report[fw.name] = { error: e.message, failed: true };
+        report[fw.name] = { error: e.message, failed: true, captureRunId: opts.captureRunId };
         failures.push(`${fw.name}: ${e.message}`);
       }
     }
+    report.__meta = {
+      schema: REPORT_SCHEMA,
+      fullSet: isFullSet,
+      captureRunId: opts.captureRunId,
+      capturedAt: new Date().toISOString(),
+    };
   } finally {
     if (browser) await browser.close();
-    fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
+    writeReport(report);
     console.log('\nReport written to', reportPath);
   }
 

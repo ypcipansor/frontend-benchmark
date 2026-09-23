@@ -34,10 +34,43 @@ REFERENCE = 'react'
 ROOT = os.path.dirname(os.path.abspath(__file__))
 SHOTS = os.path.join(ROOT, 'screenshots')
 LABEL_KEYS = ('badge', 'footer')
+# Must match REPORT_SCHEMA in screenshot.js.
+EXPECTED_SCHEMA = 2
 
 
 class ReportError(Exception):
     """The screenshot report is missing, malformed or incomplete."""
+
+
+def check_freshness(report):
+    """Require one capture generation across all seven frameworks.
+
+    The pixel contract compares live geometry against images, so mixing images
+    from different capture runs would make the mask meaningless. The report must
+    carry the __meta block written by screenshot.js and every framework entry
+    must share its captureRunId.
+    """
+    meta = report.get('__meta')
+    if not isinstance(meta, dict):
+        raise ReportError('screenshot report has no __meta freshness block')
+    if meta.get('schema') != EXPECTED_SCHEMA:
+        raise ReportError(
+            f"screenshot report schema {meta.get('schema')!r} != expected {EXPECTED_SCHEMA}")
+    if meta.get('fullSet') is not True:
+        raise ReportError(
+            f"screenshot report was not a full capture (fullSet={meta.get('fullSet')!r})")
+    run_id = meta.get('captureRunId')
+    if not isinstance(run_id, str) or not run_id:
+        raise ReportError('screenshot report __meta.captureRunId is missing')
+    for fw in FRAMEWORKS:
+        entry = report.get(fw)
+        if not isinstance(entry, dict):
+            raise ReportError(f'report has no entry for framework "{fw}"')
+        if entry.get('captureRunId') != run_id:
+            raise ReportError(
+                f'report entry for "{fw}" has captureRunId '
+                f"{entry.get('captureRunId')!r}, not the run id {run_id!r} "
+                f'(artefacts from different capture runs are mixed)')
 
 
 def load_label_rects(path):
@@ -51,6 +84,8 @@ def load_label_rects(path):
         raise ReportError(f'screenshot report is not valid JSON: {path}: {exc}') from exc
     if not isinstance(report, dict):
         raise ReportError(f'screenshot report must be a JSON object: {path}')
+
+    check_freshness(report)
 
     rects = {}
     for fw in FRAMEWORKS:
@@ -99,26 +134,25 @@ def masked_diff(ref, other, ref_rects, other_rects):
     """Difference mask with the badge/footer boxes zeroed out.
 
     Equality is exact per RGB channel: a single unit of change in any channel,
-    anywhere outside the two masked regions, counts as a difference. There is no
+    anywhere outside the masked regions, counts as a difference. There is no
     colour tolerance, because the contract the docs state is byte-identity.
 
-    The union of the reference and candidate rectangles is masked: a short badge
-    like "Yew" occupies fewer columns than "React", so masking only the
-    candidate's own box would leave the reference's extra glyphs exposed.
+    Each rectangle is masked on its own; the union of the *actual* reference and
+    candidate rectangles is *not* turned into a bounding hull. Masking the hull
+    would also hide everything between two non-overlapping boxes — a short badge
+    like "Yew" sits entirely inside "React"'s columns, but the footer is wide
+    enough that a hull spanning badge and footer could swallow unrelated rows. A
+    real difference in that gap must still fail, so only the rectangles
+    themselves (plus their per-rectangle padding) are cleared.
     """
     diff = np.any(ref != other, axis=2)
     for key in LABEL_KEYS:
-        boxes = []
         for rects in (ref_rects, other_rects):
             box = rects.get(key)
             if box is None:
                 raise ReportError(f'required {key} rectangle missing from the report')
-            boxes.append(box)
-        x0 = min(clamp_box(b, diff.shape[0], diff.shape[1])[0] for b in boxes)
-        y0 = min(clamp_box(b, diff.shape[0], diff.shape[1])[1] for b in boxes)
-        x1 = max(clamp_box(b, diff.shape[0], diff.shape[1])[2] for b in boxes)
-        y1 = max(clamp_box(b, diff.shape[0], diff.shape[1])[3] for b in boxes)
-        diff[y0:y1, x0:x1] = False
+            x0, y0, x1, y1 = clamp_box(box, diff.shape[0], diff.shape[1])
+            diff[y0:y1, x0:x1] = False
     return diff
 
 

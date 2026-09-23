@@ -4,9 +4,15 @@ Tools that capture the seven implementations, prove they render identically, and
 
 ## Setup
 
-Python 3 **and** Node.js 18+ are required. `pixel-parity.py` and
-`optimize-images.py` import **NumPy** and **Pillow**, which are pinned to exact
-versions in `docs/requirements.txt` (a pinned install, not a hash-verified lock).
+Python 3 **and** **Node.js 20+** are required for this tooling. Playwright 1.63
+declares `engines.node >= 20` (see `docs/package-lock.json`), so Node 18 is not
+supported here - `docs/package.json` also declares the constraint in `engines`
+and `npm run check:node` enforces it. (This is a stricter minimum than the
+implementations themselves, which build on Node 18+.)
+
+`pixel-parity.py` and `optimize-images.py` import **NumPy** and **Pillow**,
+which are pinned to exact versions in `docs/requirements.txt` (a pinned install,
+not a hash-verified lock).
 
 ```bash
 cd docs
@@ -105,13 +111,21 @@ states. The header badge and the footer both embed the framework name, so those
 two boxes are masked — but the masks are **not** hardcoded row bands. During
 capture, `screenshot.js` records the live `getBoundingClientRect()` of
 `.framework-badge` and `.todo-footer` for each state into
-`screenshot-report.json`, and the checker masks the **union** of the reference
-and candidate boxes. That matters because:
+`screenshot-report.json`, and the checker clears each rectangle **individually**
+(reference and candidate, plus a 2px pad each). It never clears the *bounding
+hull* of the two boxes: a hull spanning two non-overlapping rectangles would also
+hide the pixels between them, so a real difference in that gap would slip through
+unnoticed. Masking each box on its own keeps that gap under test. Two things make
+this necessary:
 
 - a short label like "Yew" occupies fewer columns than "React", so masking only
   the candidate's box would leave the reference's extra glyphs exposed; and
 - the empty state is shorter, which moves the footer up, so a single fixed row
   range cannot describe it.
+
+The report must also be a single capture generation: `screenshot.js` stamps each
+invocation with a `captureRunId` (plus schema, viewport and DPR) and all seven
+entries must share the same id, otherwise the checker refuses to run.
 
 Everything else must be **exactly equal per RGB channel**: a single unit of change
 in any channel outside the two masked regions counts as a difference. There is no
@@ -137,6 +151,7 @@ favicon URL fails, any non-favicon 404 fails, and `pageerror` is never ignored.
 - Captures with more colour variety than a real app screen would produce
 - **An incomplete set** — anything other than exactly seven framework directories with exactly five state files each, or an extra file standing in for a required state
 - **A stale or partial report** — entries missing a framework, marked failed, with `renderedItems != 100`, no visible empty state, non-empty `errors`, or `labelRects` lacking the badge/footer boxes for any state
+- **A mixed capture generation** — full verification requires all seven entries to share one `captureRunId` (a report stamped by an incremental `npm run capture:<fw>` fails, so "35 fresh" can never be claimed from a partial run). A report with no `__meta` freshness block fails too. `npm run verify --framework <name>` checks one framework alone, without claiming the full set
 
 ## What `build-montage.js` rejects
 

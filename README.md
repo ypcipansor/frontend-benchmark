@@ -212,6 +212,7 @@ The screenshots above are not hand-picked — they are produced and validated by
 
 ```bash
 cd docs
+npm run check:node          # this tooling needs Node.js 20+ (Playwright 1.63)
 npm ci                      # Playwright + pngjs, from the committed lockfile
 npx playwright install chromium
 python3 -m pip install -r requirements.txt   # NumPy + Pillow
@@ -230,6 +231,16 @@ bash scripts/stop-servers.sh
 `parity` and `pixel` are separate gates: `parity` drives the live servers and
 compares DOM, geometry and state; `pixel` compares the saved captures. The
 pipeline runs `capture → verify → parity → pixel → optimize → montage`.
+
+A full `capture` stamps a single `captureRunId` on all seven entries, and `verify`
+refuses to accept a set whose entries come from different runs — so "35 screenshots
+fresh" can only be claimed from one full run, never after re-capturing one
+framework. `npm run verify --framework <name>` checks a single framework in
+isolation. `start-servers.sh` records each server's PID, process-group id,
+`/proc` starttime, boot id and command line in an atomic state file; `stop-servers.sh`
+signals a PID only after proving that identity still matches, so a stale record or
+a recycled PID can never kill an unrelated process — and the whole process group is
+still torn down, leaving no orphaned `vite`/`ng` child behind.
 
 The code guarantees fairness in five independent ways:
 
@@ -260,6 +271,7 @@ Making seven runtimes agree required real corrections — every one of them veri
 | Tool | Needed for |
 |------|-----------|
 | Node.js 18+ | React, Vue, Angular |
+| Node.js 20+ | `docs/` screenshot & parity tooling (Playwright 1.63; enforced by `npm run check:node`) |
 | Rust 1.70+ and `trunk` | Leptos, Yew, Dioxus |
 | `wasm32-unknown-unknown` target | Leptos, Yew, Dioxus |
 | PHP 8.2+ and Composer | Blade.php |

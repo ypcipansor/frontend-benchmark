@@ -15,10 +15,20 @@
  *  8. a report without badge/footer rectangles fails the pixel checker
  *  9. the console-error policy tolerates a missing favicon but not a real 404
  * 10. parity-check.js fails on a wrong title/badge/footer/stats/filter/item label
- * 11. pixel-parity.py fails on a 1-unit RGB change outside the mask, and ignores
- *     changes inside it
+ * 11. pixel-parity.py fails on a 1-unit RGB change outside the mask, ignores
+ *     changes inside a rectangle, and *also* fails on a change in the gap
+ *     between the two non-overlapping badge/footer masks
  * 12. start-servers.sh refuses a port that is already serving (stale server)
- * 13. stop-servers.sh reaps the whole process group, leaving no orphan on the port
+ * 13. stop-servers.sh reaps the whole verified process group, leaving no live
+ *     orphan on the port
+ * 14. stop-servers.sh refuses to signal a process when the recorded identity
+ *     (starttime/group/command) no longer matches — a stale state file pointing
+ *     at a live foreign process kills nothing
+ * 15. start-servers.sh rejects an unknown/empty --only and malformed numeric
+ *     arguments before starting anything
+ * 16. capture generations: all seven entries must share one captureRunId; a
+ *     mixed generation fails full verify and pixel parity; an incremental
+ *     capture invalidates the full set; a report without freshness metadata fails
  *
  * Every fixture is synthetic and self-contained: no test reads
  * docs/screenshots/, so the suite runs on a clean checkout (and with the
@@ -224,7 +234,7 @@ function writeShot(file, { cardHeight, markerColor }) {
  * Build a complete, self-contained capture set (7 frameworks x 5 states) plus
  * screenshot-report.json, without touching the committed screenshots.
  */
-function writeShots(dir, { omitRects = false, frameworks = null, mutate = null } = {}) {
+function writeShots(dir, { omitRects = false, frameworks = null, mutate = null, runId = 'fixture-run-a', meta = true } = {}) {
   const FW = frameworks || FRAMEWORKS;
   const report = {};
   FW.forEach((fw, idx) => {
@@ -238,6 +248,9 @@ function writeShots(dir, { omitRects = false, frameworks = null, mutate = null }
       errors: [],
       labelRects: {},
       screenshots: [],
+      captureRunId: runId,
+      schema: 2,
+      viewport: { width: VIEWPORT_W, height: VIEWPORT_H, deviceScaleFactor: 1 },
     };
     for (const s of STATES) {
       const file = path.join(dir, fw, `${s}.png`);
@@ -251,6 +264,9 @@ function writeShots(dir, { omitRects = false, frameworks = null, mutate = null }
         : { badge: BADGE_RECT.slice(), footer: FOOTER_RECT.slice() };
     }
   });
+  if (meta) {
+    report.__meta = { schema: 2, fullSet: true, captureRunId: runId, capturedAt: '2024-01-01T00:00:00.000Z' };
+  }
   if (mutate) mutate(dir, report);
   fs.writeFileSync(path.join(dir, 'screenshot-report.json'), JSON.stringify(report, null, 2));
   return report;
@@ -329,6 +345,47 @@ function pokePixel(file, x, y, channel, delta) {
       const entry = readReport(failDir, 'fixture');
       assert(entry && entry.failed === true, `report entry not marked failed: ${JSON.stringify(entry)}`);
       assert(typeof entry.error === 'string' && entry.error.length, 'no error message recorded');
+    });
+    await test('a failed incremental capture does not leave the old entry fresh', () => {
+      const raw = JSON.parse(fs.readFileSync(path.join(failDir, 'screenshot-report.json'), 'utf8'));
+      // The seeded stale entry has been replaced by a failure record, and the
+      // report itself is not a full, fresh generation.
+      assert(raw.fixture.failed === true, 'stale entry survived as fresh');
+      assert(!raw.__meta || raw.__meta.fullSet !== true, 'failed run claimed a full fresh set');
+    });
+  }
+  await stopFixture(server);
+
+  // 5(c) + 5(e): generation provenance for incremental captures.
+  server = await startFixture({});
+  {
+    const dir = tmpDir('incremental');
+    // Seed a full, fresh 7-framework generation, then re-capture just the
+    // fixture incrementally. The report must stop claiming a full fresh set.
+    writeShots(dir, { runId: 'gen-A' });
+    const before = JSON.parse(fs.readFileSync(path.join(dir, 'screenshot-report.json'), 'utf8'));
+    assert(before.__meta.captureRunId === 'gen-A', 'precondition: seeded run id');
+
+    const res = run('node', [
+      path.join(DOCS, 'screenshot.js'), '--framework', `fixture:${FIXTURE_PORT}`, '--out', dir,
+    ]);
+    await test('incremental capture succeeds and stamps a new run id', () => {
+      assert(res.status === 0, `exit ${res.status}: ${res.stderr}`);
+      const after = JSON.parse(fs.readFileSync(path.join(dir, 'screenshot-report.json'), 'utf8'));
+      assert(after.fixture.captureRunId && after.fixture.captureRunId !== 'gen-A',
+        `incremental entry reused the old run id: ${after.fixture.captureRunId}`);
+      assert(after.__meta.captureRunId === after.fixture.captureRunId, 'meta run id not updated');
+      assert(after.__meta.fullSet === false, `incremental run claimed fullSet=${after.__meta.fullSet}`);
+    });
+    await test('incremental capture invalidates a full-set verification', () => {
+      const res2 = run('node', [path.join(DOCS, 'verify-screenshots.js'), '--dir', dir]);
+      assert(res2.status !== 0, 'full verify accepted a mixed generation');
+      assert(/fullSet|different generations|captureRunId|freshness/i.test(res2.stdout),
+        `not reported as a generation problem:\n${res2.stdout}`);
+    });
+    await test('an incremental capture never lets a stale generation claim "35 fresh"', () => {
+      const res3 = run('node', [path.join(DOCS, 'verify-screenshots.js'), '--dir', dir]);
+      assert(!/ALL SCREENSHOTS OK/.test(res3.stdout), 'incremental run reported a full fresh set');
     });
   }
   await stopFixture(server);
@@ -422,6 +479,56 @@ function pokePixel(file, x, y, channel, delta) {
       assert(/height disagrees/.test(res.stdout), `not reported: ${res.stdout}`);
     });
   }
+
+  // --- capture generations (finding 5) -------------------------------------
+  console.log('\ncapture generation freshness');
+  {
+    // (a) Seven frameworks sharing one run id pass a full verification.
+    const dir = tmpDir('freshness-same');
+    writeShots(dir, { runId: 'run-1' });
+    await test('full verify passes when all seven entries share one captureRunId', () => {
+      const res = run('node', [path.join(DOCS, 'verify-screenshots.js'), '--dir', dir]);
+      assert(res.status === 0, `exit ${res.status}: ${res.stdout}`);
+    });
+    await test('pixel-parity passes for one capture generation', () => {
+      const res = run('python3', [path.join(DOCS, 'pixel-parity.py'), '--shots', dir]);
+      assert(res.status === 0, `exit ${res.status}:\n${res.stdout}`);
+    });
+  }
+  {
+    // (b) One entry from a different run must fail a full verification.
+    const dir = tmpDir('freshness-mixed');
+    writeShots(dir, { runId: 'run-1' });
+    const report = JSON.parse(fs.readFileSync(path.join(dir, 'screenshot-report.json'), 'utf8'));
+    report.vue.captureRunId = 'run-2';
+    fs.writeFileSync(path.join(dir, 'screenshot-report.json'), JSON.stringify(report, null, 2));
+    await test('full verify fails when one entry has a different captureRunId', () => {
+      const res = run('node', [path.join(DOCS, 'verify-screenshots.js'), '--dir', dir]);
+      assert(res.status !== 0, 'expected non-zero exit');
+      assert(/different generations|captureRunId/.test(res.stdout), `unclear: ${res.stdout}`);
+    });
+    await test('pixel-parity fails on a mixed capture generation', () => {
+      const res = run('python3', [path.join(DOCS, 'pixel-parity.py'), '--shots', dir]);
+      assert(res.status !== 0, 'expected non-zero exit');
+      assert(/captureRunId|mixed/i.test(res.stdout), `unclear: ${res.stdout}`);
+    });
+  }
+  {
+    // (d) A report with no freshness metadata at all must fail clearly.
+    const dir = tmpDir('freshness-nometa');
+    writeShots(dir, { meta: false });
+    await test('full verify fails when the report has no freshness metadata', () => {
+      const res = run('node', [path.join(DOCS, 'verify-screenshots.js'), '--dir', dir]);
+      assert(res.status !== 0, 'expected non-zero exit');
+      assert(/__meta|freshness/i.test(res.stdout), `unclear: ${res.stdout}`);
+    });
+    await test('pixel-parity fails when the report has no freshness metadata', () => {
+      const res = run('python3', [path.join(DOCS, 'pixel-parity.py'), '--shots', dir]);
+      assert(res.status !== 0, 'expected non-zero exit');
+      assert(/__meta|freshness/i.test(res.stdout), `unclear: ${res.stdout}`);
+    });
+  }
+
   // --- 8 + 11: pixel checker robustness and exact equality -----------------
   console.log('\npixel checker robustness');
   {
@@ -482,6 +589,48 @@ function pokePixel(file, x, y, channel, delta) {
     await test('pixel-parity ignores changes inside the mask', () => {
       const res = run('python3', [path.join(DOCS, 'pixel-parity.py'), '--shots', dir]);
       assert(res.status === 0, `expected a pass:\n${res.stdout}`);
+    });
+  }
+  {
+    // The two masked boxes do not touch: the badge is near the top, the footer
+    // near the bottom. Their *bounding hull* covers the whole area in between,
+    // so a hull-based mask would silently ignore a real difference there. Prove
+    // the checker clears each rectangle individually by poking a pixel in the
+    // gap and requiring a failure.
+    const gapX = Math.round((BADGE_RECT[0] + FOOTER_RECT[0]) / 2);
+    const gapY = Math.round((BADGE_RECT[1] + BADGE_RECT[3] + FOOTER_RECT[1]) / 2);
+    const inBadge = [BADGE_RECT[0] + 3, BADGE_RECT[1] + 3];
+    const inFooter = [FOOTER_RECT[0] + 3, FOOTER_RECT[1] + 3];
+    assert(
+      gapY > BADGE_RECT[1] + BADGE_RECT[3] && gapY < FOOTER_RECT[1],
+      `gap point ${gapX},${gapY} is not between the two rectangles`
+    );
+    await test('pixel-parity fails on a 1-unit change in the gap between two non-overlapping masks', () => {
+      const dir2 = tmpDir('pixel-gap2');
+      writeShots(dir2);
+      pokePixel(path.join(dir2, 'vue', 'all.png'), gapX, gapY, 1, 1);
+      const res = run('python3', [path.join(DOCS, 'pixel-parity.py'), '--shots', dir2]);
+      assert(res.status !== 0, `gap difference was masked:\n${res.stdout}`);
+      assert(/vue/.test(res.stdout), 'the diverging framework was not named');
+    });
+    await test('pixel-parity still ignores changes inside either rectangle', () => {
+      const dir3 = tmpDir('pixel-gap3');
+      writeShots(dir3);
+      pokePixel(path.join(dir3, 'vue', 'all.png'), inBadge[0], inBadge[1], 0, 40);
+      pokePixel(path.join(dir3, 'vue', 'all.png'), inFooter[0], inFooter[1], 2, -40);
+      const res = run('python3', [path.join(DOCS, 'pixel-parity.py'), '--shots', dir3]);
+      assert(res.status === 0, `changes inside the masks should pass:\n${res.stdout}`);
+    });
+  }
+  {
+    // A change outside every mask must still fail, confirming the per-rectangle
+    // masking did not widen the tolerated region.
+    const dir = tmpDir('pixel-outside');
+    writeShots(dir);
+    pokePixel(path.join(dir, 'vue', 'all.png'), 100, 100, 0, 1);
+    await test('pixel-parity fails on a change outside all masks', () => {
+      const res = run('python3', [path.join(DOCS, 'pixel-parity.py'), '--shots', dir]);
+      assert(res.status !== 0, `expected non-zero exit:\n${res.stdout}`);
     });
   }
 
@@ -669,6 +818,153 @@ function pokePixel(file, x, y, channel, delta) {
     }
   }
 
+  // --- 3: start-servers.sh validates --only and numeric arguments ----------
+  console.log('\nstart-servers.sh argument validation');
+  for (const [label, args] of [
+    ['unknown --only target', ['--only', 'bogus']],
+    ['empty --only value', ['--only', '']],
+    ['--only without an argument', ['--only']],
+    ['non-numeric --ready-timeout', ['--ready-timeout', 'soon']],
+    ['--ready-timeout without a value', ['--ready-timeout']],
+    ['non-numeric --port-offset', ['--port-offset', 'x']],
+    ['--port-offset without a value', ['--port-offset']],
+  ]) {
+    await test(`start-servers.sh rejects ${label} with a non-zero exit`, () => {
+      const res = run('bash', [path.join(DOCS, 'scripts', 'start-servers.sh'), ...args], { timeout: 15000 });
+      assert(res.status !== 0, `expected non-zero exit, got ${res.status}`);
+      assert(/start-servers\.sh:/.test(res.stdout + res.stderr), `no clear message: ${res.stdout}${res.stderr}`);
+    });
+    await test(`start-servers.sh starts nothing for ${label}`, () => {
+      const res = run('bash', [path.join(DOCS, 'scripts', 'start-servers.sh'), ...args], { timeout: 15000 });
+      assert(!/starting /.test(res.stdout), `a server was started despite an invalid argument: ${res.stdout}`);
+    });
+  }
+  {
+    // A valid target must be accepted (it fails later for other reasons here,
+    // but not at argument validation).
+    const res = run('bash', [path.join(DOCS, 'scripts', 'start-servers.sh'), '--only', 'react', '--port-offset', 'foo'], { timeout: 15000 });
+    await test('start-servers.sh accepts a valid --only but still validates its numeric args', () => {
+      assert(!/unknown --only target/.test(res.stdout + res.stderr), 'valid --only was rejected');
+      assert(/port-offset/.test(res.stdout + res.stderr), 'bad port-offset was not rejected');
+    });
+  }
+
+  /**
+   * PIDs still alive (state != Z) in process group `pgid`. Used to prove a real
+   * process group was reaped without being confused by a zombie leader that has
+   * not been reaped by its parent yet.
+   */
+  function liveGroupMembers(pgid) {
+    const live = [];
+    for (const name of fs.readdirSync('/proc')) {
+      if (!/^\d+$/.test(name)) continue;
+      let stat;
+      try { stat = fs.readFileSync(`/proc/${name}/stat`, 'utf8'); } catch { continue; }
+      const rest = stat.slice(stat.lastIndexOf(')') + 2).trim().split(/\s+/);
+      if (Number(rest[2]) === pgid && rest[0] !== 'Z') live.push(name);
+    }
+    return live;
+  }
+
+  /** Read /proc/<pid>/stat fields needed to fabricate a matching state file. */
+  function procIdentity(pid) {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const rest = stat.slice(stat.lastIndexOf(')') + 2).trim().split(/\s+/);
+    // after comm: state(0) ppid(1) pgrp(2) ... starttime(19)
+    return { pgrp: rest[2], starttime: rest[19] };
+  }
+  function bootId() {
+    return fs.readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim();
+  }
+  /** Write a state file that will verify against a live process. */
+  function writeState(logsDir, name, pid, { override = {} } = {}) {
+    const id = procIdentity(pid);
+    const cmd = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').replace(/\0/g, ' ').trim();
+    const fields = {
+      pid: String(pid),
+      pgid: id.pgrp,
+      starttime: id.starttime,
+      boot_id: bootId(),
+      run_token: 'test-token',
+      cmd,
+      ...override,
+    };
+    const body = Object.entries(fields).map(([k, v]) => `${k}=${v}`).join('\n');
+    fs.writeFileSync(path.join(logsDir, `${name}.state`), body + '\n');
+  }
+
+  // --- 1: stale metadata must never kill a foreign, unrelated process -------
+  console.log('\nstale metadata safety (finding 1)');
+  {
+    // A live, unrelated process. A stale state file points at it with the wrong
+    // identity (as a PID after unclean exit would). stop-servers.sh must not
+    // signal it.
+    const foreignPort = 4197;
+    const foreign = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('foreign');
+    });
+    await new Promise((resolve) => foreign.listen(foreignPort, '127.0.0.1', resolve));
+    const logsDir = tmpDir('stale-logs');
+    const foreignPid = process.pid; // this test process is a live foreign PID
+    writeState(logsDir, 'react', foreignPid, { override: { starttime: '1', run_token: 'stale' } });
+    try {
+      const res = run('bash', [path.join(DOCS, 'scripts', 'stop-servers.sh')], {
+        env: { FB_LOGS_DIR: logsDir },
+        timeout: 15000,
+      });
+      await test('stop-servers.sh refuses a state file whose starttime does not match', () => {
+        assert(res.status === 0, `exit ${res.status}: ${res.stdout}${res.stderr}`);
+        assert(/refusing to signal react/.test(res.stdout + res.stderr),
+          `did not refuse: ${res.stdout}${res.stderr}`);
+        assert(/starttime|reused/i.test(res.stdout + res.stderr), `reason unclear: ${res.stdout}${res.stderr}`);
+      });
+      await test('stop-servers.sh does not signal the unrelated process', async () => {
+        // Still alive (we are running) and the foreign server still answers.
+        let alive = true;
+        try { process.kill(foreignPid, 0); } catch { alive = false; }
+        assert(alive, 'this test process was signalled');
+        const ok = await fetch(`http://127.0.0.1:${foreignPort}/`).then((r) => r.ok).catch(() => false);
+        assert(ok, 'the foreign listener was killed');
+      });
+      await test('the stale metadata is quarantined, not trusted or silently deleted', () => {
+        const leftovers = fs.readdirSync(logsDir);
+        assert(leftovers.some((f) => f.startsWith('stale-')), `not quarantined: ${leftovers.join(', ')}`);
+        assert(!leftovers.includes('react.state'), 'the stale state file was left in place');
+      });
+    } finally {
+      await new Promise((resolve) => foreign.close(resolve));
+    }
+  }
+  {
+    // A malformed state file (no identity metadata) must also be refused.
+    const logsDir = tmpDir('malformed-logs');
+    fs.writeFileSync(path.join(logsDir, 'vue.state'), 'pid=999999\n');
+    const res = run('bash', [path.join(DOCS, 'scripts', 'stop-servers.sh')], {
+      env: { FB_LOGS_DIR: logsDir },
+      timeout: 15000,
+    });
+    await test('stop-servers.sh refuses a state file with no identity metadata', () => {
+      assert(res.status === 0, `exit ${res.status}`);
+      assert(/refusing to signal vue/.test(res.stdout + res.stderr), `did not refuse: ${res.stdout}${res.stderr}`);
+    });
+  }
+  {
+    // A legacy pidfile (from an older run) has no identity; it must never be
+    // signalled either.
+    const logsDir = tmpDir('legacy-logs');
+    fs.writeFileSync(path.join(logsDir, 'angular.pid'), String(process.pid));
+    const res = run('bash', [path.join(DOCS, 'scripts', 'stop-servers.sh')], {
+      env: { FB_LOGS_DIR: logsDir },
+      timeout: 15000,
+    });
+    await test('stop-servers.sh ignores a legacy pidfile instead of trusting its number', () => {
+      assert(res.status === 0, `exit ${res.status}`);
+      assert(/legacy pidfile/.test(res.stdout + res.stderr), `legacy pidfile was not flagged: ${res.stdout}${res.stderr}`);
+      assert(fs.existsSync(path.join(logsDir, 'angular.pid')) === false, 'legacy pidfile was left in place');
+    });
+  }
+
   // --- 13: stop-servers.sh must reap the whole process group ----------------
   console.log('\nstop-servers.sh process-group cleanup');
   {
@@ -683,7 +979,7 @@ function pokePixel(file, x, y, channel, delta) {
     );
     try {
       await waitForPort(port);
-      fs.writeFileSync(path.join(logsDir, 'fixture.pid'), String(leader.pid));
+      writeState(logsDir, 'fixture', leader.pid);
       const res = run('bash', [path.join(DOCS, 'scripts', 'stop-servers.sh')], {
         env: { FB_LOGS_DIR: logsDir },
         timeout: 30000,
@@ -700,6 +996,52 @@ function pokePixel(file, x, y, channel, delta) {
           if (up) await new Promise((r) => setTimeout(r, 200));
         }
         assert(!up, `port ${port} is still being served after stop`);
+      });
+      await test('a verified process group is stopped completely (no live orphan survives)', async () => {
+        // A killed leader may linger as a zombie until its parent reaps it, and
+        // `kill(-pgid, 0)` still succeeds for a group holding only zombies. What
+        // must not survive is a *live* process in the group, so scan /proc.
+        const live = liveGroupMembers(leader.pid);
+        assert(live.length === 0, `live process(es) still in the group: ${live.join(', ')}`);
+      });
+    } finally {
+      try { process.kill(-leader.pid, 'SIGKILL'); } catch { /* already gone */ }
+      try { leader.kill('SIGKILL'); } catch { /* already gone */ }
+    }
+  }
+  {
+    // A process may rewrite its own title after launch (npm sets it to the npm
+    // script name; a setsid wrapper execs away). The stored command line must
+    // therefore never be a gate on signalling: a real server whose title changed
+    // would otherwise be left running and holding its port. starttime + boot id
+    // + group leadership are the real identity.
+    const logsDir = tmpDir('title-logs');
+    const port = 4198;
+    const leader = spawn('setsid', ['python3', '-m', 'http.server', String(port), '--bind', '127.0.0.1'], {
+      stdio: 'ignore',
+    });
+    try {
+      await waitForPort(port);
+      // Record a command line that no longer matches the live process, exactly
+      // as npm's title rewrite does in practice.
+      writeState(logsDir, 'fixture', leader.pid, { override: { cmd: 'npm run dev -- --port 1' } });
+      const res = run('bash', [path.join(DOCS, 'scripts', 'stop-servers.sh')], {
+        env: { FB_LOGS_DIR: logsDir },
+        timeout: 30000,
+      });
+      await test('stop-servers.sh stops a verified server whose title changed', () => {
+        assert(res.status === 0, `exit ${res.status}: ${res.stdout}${res.stderr}`);
+        assert(/stopping fixture/.test(res.stdout), `a title rewrite made it skip a live server: ${res.stdout}${res.stderr}`);
+        assert(!/refusing to signal fixture/.test(res.stdout + res.stderr), 'a title rewrite was treated as a foreign process');
+      });
+      await test('a title-rewritten server does not orphan its port', async () => {
+        const deadline = Date.now() + 5000;
+        let up = true;
+        while (Date.now() < deadline && up) {
+          up = await fetch(`http://127.0.0.1:${port}/`).then(() => true).catch(() => false);
+          if (up) await new Promise((r) => setTimeout(r, 200));
+        }
+        assert(!up, `port ${port} is still served after stop`);
       });
     } finally {
       try { process.kill(-leader.pid, 'SIGKILL'); } catch { /* already gone */ }
