@@ -132,6 +132,10 @@ jobs:
         working-directory: docs
         run: npm run montage
 
+      - name: Documented commands are reproducible
+        working-directory: docs
+        run: npm run check:docs
+
       - name: Regression tests
         working-directory: docs
         run: npm test

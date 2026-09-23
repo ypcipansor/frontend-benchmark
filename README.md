@@ -224,7 +224,8 @@ npm run parity              # 3. assert identical DOM, geometry and interaction 
 npm run pixel               # 4. diff every state against the React reference
 npm run optimize            # 5. card-cropped JPEGs for this README
 npm run montage             # 6. side-by-side comparison montages
-npm test                    # 7. regression tests for the tooling's failure modes
+npm run check:docs          # 7. documented npm commands name their working directory
+npm test                    # 8. regression tests for the tooling's failure modes
 bash scripts/stop-servers.sh
 ```
 
@@ -240,7 +241,10 @@ isolation. `start-servers.sh` records each server's PID, process-group id,
 `/proc` starttime, boot id and command line in an atomic state file; `stop-servers.sh`
 signals a PID only after proving that identity still matches, so a stale record or
 a recycled PID can never kill an unrelated process — and the whole process group is
-still torn down, leaving no orphaned `vite`/`ng` child behind.
+still torn down, leaving no orphaned `vite`/`ng` child behind. A state file left by
+an earlier run (dead PID or old run token) is quarantined before launch, so it can
+never abort a valid startup; readiness is only accepted once the state carries the
+current run's token and verifies against live `/proc`.
 
 The code guarantees fairness in five independent ways:
 

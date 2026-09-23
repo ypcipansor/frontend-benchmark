@@ -29,6 +29,12 @@
  * 16. capture generations: all seven entries must share one captureRunId; a
  *     mixed generation fails full verify and pixel parity; an incremental
  *     capture invalidates the full set; a report without freshness metadata fails
+ * 17. a stale state file (dead PID, old run token) must not abort a valid
+ *     start-servers.sh run: the old record is quarantined, the new one carries
+ *     this run's token, the server becomes ready, and stop-servers.sh reaps it;
+ *     a process the run launched that dies before ready still fails
+ * 18. every documented `npm run update-readme` names its working directory, and
+ *     the checker rejects a bare command (see docs/check-doc-commands.js)
  *
  * Every fixture is synthetic and self-contained: no test reads
  * docs/screenshots/, so the suite runs on a clean checkout (and with the
@@ -528,6 +534,76 @@ function pokePixel(file, x, y, channel, delta) {
       assert(/__meta|freshness/i.test(res.stdout), `unclear: ${res.stdout}`);
     });
   }
+  {
+    // (e) An entry that lost its own captureRunId while __meta still has one
+    // must NOT inherit the meta id: that entry's freshness would be unproven.
+    const dir = tmpDir('freshness-missing-entry');
+    writeShots(dir, { runId: 'run-1' });
+    const report = JSON.parse(fs.readFileSync(path.join(dir, 'screenshot-report.json'), 'utf8'));
+    delete report.vue.captureRunId;
+    fs.writeFileSync(path.join(dir, 'screenshot-report.json'), JSON.stringify(report, null, 2));
+    await test('full verify fails when one entry has no captureRunId (meta present)', () => {
+      const res = run('node', [path.join(DOCS, 'verify-screenshots.js'), '--dir', dir]);
+      assert(res.status !== 0, `expected non-zero exit, got ${res.status}:\n${res.stdout}`);
+      assert(/vue/.test(res.stdout) && /captureRunId|freshness/i.test(res.stdout),
+        `entry without an id was not reported: ${res.stdout}`);
+    });
+    await test('scoped verify also fails for the entry with no captureRunId', () => {
+      const res = run('node', [path.join(DOCS, 'verify-screenshots.js'),
+        '--dir', dir, '--framework', 'vue']);
+      assert(res.status !== 0, `expected non-zero exit, got ${res.status}:\n${res.stdout}`);
+      assert(/captureRunId|freshness/i.test(res.stdout), `unclear scoped failure: ${res.stdout}`);
+    });
+    await test('pixel-parity rejects a report whose entry lost its captureRunId', () => {
+      const res = run('python3', [path.join(DOCS, 'pixel-parity.py'), '--shots', dir]);
+      assert(res.status !== 0, 'expected non-zero exit');
+      assert(/captureRunId|mixed/i.test(res.stdout), `unclear: ${res.stdout}`);
+    });
+  }
+  {
+    // (f) An *empty-string* id is not a real id either.
+    const dir = tmpDir('freshness-empty-entry');
+    writeShots(dir, { runId: 'run-1' });
+    const report = JSON.parse(fs.readFileSync(path.join(dir, 'screenshot-report.json'), 'utf8'));
+    report.react.captureRunId = '';
+    fs.writeFileSync(path.join(dir, 'screenshot-report.json'), JSON.stringify(report, null, 2));
+    await test('full verify fails when an entry captureRunId is empty', () => {
+      const res = run('node', [path.join(DOCS, 'verify-screenshots.js'), '--dir', dir]);
+      assert(res.status !== 0, `expected non-zero exit, got ${res.status}:\n${res.stdout}`);
+      assert(/react/.test(res.stdout) && /captureRunId|freshness/i.test(res.stdout),
+        `empty id not reported: ${res.stdout}`);
+    });
+    await test('scoped verify fails when the scoped entry captureRunId is empty', () => {
+      const res = run('node', [path.join(DOCS, 'verify-screenshots.js'),
+        '--dir', dir, '--framework', 'react']);
+      assert(res.status !== 0, `expected non-zero exit, got ${res.status}:\n${res.stdout}`);
+      assert(/captureRunId|freshness/i.test(res.stdout), `unclear scoped failure: ${res.stdout}`);
+    });
+  }
+  {
+    // (g) A non-string id (e.g. a number) must not pass as an id either.
+    const dir = tmpDir('freshness-nonstring-entry');
+    writeShots(dir, { runId: 'run-1' });
+    const report = JSON.parse(fs.readFileSync(path.join(dir, 'screenshot-report.json'), 'utf8'));
+    report.angular.captureRunId = 12345;
+    fs.writeFileSync(path.join(dir, 'screenshot-report.json'), JSON.stringify(report, null, 2));
+    await test('full verify fails when an entry captureRunId is not a string', () => {
+      const res = run('node', [path.join(DOCS, 'verify-screenshots.js'), '--dir', dir]);
+      assert(res.status !== 0, `expected non-zero exit, got ${res.status}:\n${res.stdout}`);
+      assert(/angular/.test(res.stdout) && /captureRunId|freshness/i.test(res.stdout),
+        `non-string id not reported: ${res.stdout}`);
+    });
+  }
+  {
+    // (h) A valid full set whose entries all carry their own id still passes,
+    // so the stricter rule does not reject a legitimate capture.
+    const dir = tmpDir('freshness-all-own-ids');
+    writeShots(dir, { runId: 'run-own-ids' });
+    await test('full verify still passes when every entry carries the shared id', () => {
+      const res = run('node', [path.join(DOCS, 'verify-screenshots.js'), '--dir', dir]);
+      assert(res.status === 0, `exit ${res.status}: ${res.stdout}`);
+    });
+  }
 
   // --- 8 + 11: pixel checker robustness and exact equality -----------------
   console.log('\npixel checker robustness');
@@ -849,6 +925,121 @@ function pokePixel(file, x, y, channel, delta) {
     });
   }
 
+  /** Read a state file written by serve.sh into a plain {key: value}. */
+  function parseState(file) {
+    return Object.fromEntries(
+      fs.readFileSync(file, 'utf8').split('\n').filter(Boolean)
+        .filter((l) => !l.startsWith('#')).map((l) => l.split(/=(.*)/s).slice(0, 2))
+    );
+  }
+
+  /** Write a well-formed state file for a dead PID with an old run token. */
+  function writeDeadState(logsDir, name, token, pid) {
+    const fields = {
+      pid: String(pid), pgid: String(pid), starttime: '1',
+      boot_id: bootId(), run_token: token, cmd: 'python3 -m http.server (stale)',
+    };
+    fs.writeFileSync(
+      path.join(logsDir, `${name}.state`),
+      Object.entries(fields).map(([k, v]) => `${k}=${v}`).join('\n') + '\n'
+    );
+  }
+
+  // --- 17: a stale state file must not abort a valid startup ----------------
+  console.log('\nstale state startup (finding 17)');
+  {
+    const OFFSET = 2000;                       // leptos -> 6004, away from real ports
+    const port = 4004 + OFFSET;
+    const dist = path.join(ROOT, 'implementations', 'leptos', 'dist');
+    const createdDist = !fs.existsSync(dist);
+    // The production `--only leptos` path serves implementations/leptos/dist
+    // through `python3 -m http.server`. A minimal index.html is enough to make
+    // it a *valid* target that really answers HTTP.
+    if (createdDist) {
+      fs.mkdirSync(dist, { recursive: true });
+      fs.writeFileSync(path.join(dist, 'index.html'),
+        '<!doctype html><title>fixture</title><div class="todo-app">fixture</div>');
+    }
+    const logsDir = tmpDir('stale-start-logs');
+    const pidMax = Number(fs.readFileSync('/proc/sys/kernel/pid_max', 'utf8').trim());
+    const deadPid = pidMax + 17;               // beyond pid_max => can never exist
+    writeDeadState(logsDir, 'leptos', 'stale-token-from-a-previous-run', deadPid);
+    const startScript = path.join(DOCS, 'scripts', 'start-servers.sh');
+    const stopScript = path.join(DOCS, 'scripts', 'stop-servers.sh');
+    try {
+      const res = run('bash',
+        [startScript, '--only', 'leptos', '--port-offset', String(OFFSET), '--ready-timeout', '60'],
+        { env: { FB_LOGS_DIR: logsDir }, timeout: 120000 });
+
+      await test('start-servers.sh does not abort because of a stale state file', () => {
+        assert(res.status === 0,
+          `stale state aborted a valid startup (exit ${res.status}):\n${res.stdout}${res.stderr}`);
+        assert(/quarantining stale leptos\.state/.test(res.stdout + res.stderr),
+          `the stale record was not quarantined:\n${res.stdout}${res.stderr}`);
+        assert(new RegExp(`leptos ready on ${port}`).test(res.stdout),
+          `the server never reported ready:\n${res.stdout}${res.stderr}`);
+      });
+      await test("the state file is replaced with this run's token", () => {
+        const fields = parseState(path.join(logsDir, 'leptos.state'));
+        assert(fields.pid && fields.pid !== String(deadPid),
+          `state still points at the dead PID ${deadPid}: ${JSON.stringify(fields)}`);
+        assert(fields.run_token && fields.run_token !== 'stale-token-from-a-previous-run',
+          `run_token was not replaced: ${fields.run_token}`);
+      });
+      await test('the server really serves the fixture on the port', async () => {
+        const ok = await fetch(`http://127.0.0.1:${port}/`).then((r) => r.ok).catch(() => false);
+        assert(ok, `port ${port} is not serving after the startup`);
+      });
+      await test('production stop-servers.sh stops the freshly started server', () => {
+        const stopRes = run('bash', [stopScript],
+          { env: { FB_LOGS_DIR: logsDir }, timeout: 30000 });
+        assert(stopRes.status === 0, `stop exit ${stopRes.status}:\n${stopRes.stdout}${stopRes.stderr}`);
+        assert(/stopping leptos/.test(stopRes.stdout),
+          `the verified server was not stopped:\n${stopRes.stdout}${stopRes.stderr}`);
+      });
+      await test('no orphan survives and the port is free after stop', async () => {
+        const deadline = Date.now() + 5000;
+        let up = true;
+        while (Date.now() < deadline && up) {
+          up = await fetch(`http://127.0.0.1:${port}/`).then(() => true).catch(() => false);
+          if (up) await new Promise((r) => setTimeout(r, 200));
+        }
+        assert(!up, `port ${port} is still served after stop`);
+        assert(!fs.existsSync(path.join(logsDir, 'leptos.state')),
+          'the state file survived the stop');
+      });
+    } finally {
+      run('bash', [stopScript], { env: { FB_LOGS_DIR: logsDir }, timeout: 30000 });
+      if (createdDist) fs.rmSync(dist, { recursive: true, force: true });
+    }
+  }
+  {
+    // A process this run launched that dies before becoming ready is a *real*
+    // failure: give leptos a `python3` that exits immediately. The launcher is
+    // gone, so no later state can ever arrive and the startup must abort.
+    const OFFSET = 2001;
+    const port = 4004 + OFFSET;
+    const logsDir = tmpDir('dead-start-logs');
+    const bin = tmpDir('fake-bin');
+    const fakePy = path.join(bin, 'python3');
+    fs.writeFileSync(fakePy, '#!/usr/bin/env bash\nexit 7\n');
+    fs.chmodSync(fakePy, 0o755);
+    const res = run('bash',
+      [path.join(DOCS, 'scripts', 'start-servers.sh'),
+       '--only', 'leptos', '--port-offset', String(OFFSET), '--ready-timeout', '30'],
+      { env: { FB_LOGS_DIR: logsDir, PATH: `${bin}:${process.env.PATH}` }, timeout: 60000 });
+    await test('startup fails when the process it launched dies before becoming ready', () => {
+      assert(res.status !== 0, `expected non-zero exit, got ${res.status}:\n${res.stdout}${res.stderr}`);
+      assert(/exited before/.test(res.stdout + res.stderr),
+        `the dead server was not reported as a failure:\n${res.stdout}${res.stderr}`);
+      assert(!/ready on/.test(res.stdout), `a dead server was reported ready:\n${res.stdout}`);
+    });
+    await test('the failed startup leaves nothing serving that port', async () => {
+      const up = await fetch(`http://127.0.0.1:${port}/`).then(() => true).catch(() => false);
+      assert(!up, `port ${port} is still served after a failed startup`);
+    });
+  }
+
   /**
    * PIDs still alive (state != Z) in process group `pgid`. Used to prove a real
    * process group was reaped without being confused by a zombie leader that has
@@ -1093,6 +1284,39 @@ function pokePixel(file, x, y, channel, delta) {
       try { process.kill(-child.pid, 'SIGKILL'); } catch { /* already gone */ }
       try { child.kill('SIGKILL'); } catch { /* already gone */ }
     }
+  }
+
+  // --- 18: documented npm commands must be runnable as written --------------
+  console.log('\ndocumented commands (finding 18)');
+  {
+    const checker = path.join(DOCS, 'check-doc-commands.js');
+    await test('every documented "npm run update-readme" names its working directory', () => {
+      const res = run('node', [checker], { timeout: 30000 });
+      assert(res.status === 0, `checker failed:\n${res.stdout}${res.stderr}`);
+      assert(/DOC COMMANDS OK/.test(res.stdout), `no success line: ${res.stdout}`);
+    });
+    await test('the update-readme script really exists in its owning package.json', () => {
+      const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'benchmarks', 'scripts', 'package.json'), 'utf8'));
+      assert(pkg.scripts && pkg.scripts['update-readme'],
+        'benchmarks/scripts/package.json has no update-readme script');
+    });
+    await test('the checker rejects a bare command with no working directory', () => {
+      // A deliberately broken doc, checked through the same production code
+      // path: the checker must fail rather than wave the command through.
+      const dir = tmpDir('doc-cmd');
+      const doc = path.join(dir, 'README.md');
+      fs.writeFileSync(doc, '### Results\n\n```bash\nnpm run update-readme\n```\n');
+      const res = run('node', [checker, '--doc', doc], { timeout: 30000 });
+      assert(res.status !== 0, `a bare command was accepted:\n${res.stdout}${res.stderr}`);
+      assert(/without a working directory/.test(res.stdout + res.stderr), `unclear failure: ${res.stdout}${res.stderr}`);
+    });
+    await test('the checker accepts the command once the context is present', () => {
+      const dir = tmpDir('doc-cmd-ok');
+      const doc = path.join(dir, 'README.md');
+      fs.writeFileSync(doc, '### Results\n\n```bash\ncd benchmarks/scripts\nnpm run update-readme\n```\n');
+      const res = run('node', [checker, '--doc', doc], { timeout: 30000 });
+      assert(res.status === 0, `a contextualised command was rejected:\n${res.stdout}${res.stderr}`);
+    });
   }
 
   // --- self-containment: the suite must pass with no production captures ----

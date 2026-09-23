@@ -38,10 +38,15 @@ bash docs/scripts/stop-servers.sh    # stops exactly the processes it started
 
 `start-servers.sh` refuses to start if any target port is already in use — a
 pre-existing (possibly stale) server can never be mistaken for the one it just
-launched, and it never kills a foreign process. It checks the launched PID is
-still alive before accepting an HTTP response, and if any server fails it stops
-everything this run already started. Each server is launched with `setsid`, and
-`stop-servers.sh` signals the whole process group, so no orphaned child keeps
+launched, and it never kills a foreign process. Before launching, it quarantines
+any state file left by an earlier run (a dead PID or an old `run_token`) so a
+stale record can never be read as this run's identity and abort a valid startup;
+a state whose process is still alive and verified is left alone. Readiness is only
+accepted once a state file carries *this* run's `run_token` and its recorded
+process still verifies against live `/proc`; a process this run launched that
+exits before recording a valid state is a real failure. If any server fails it
+stops everything this run already started. Each server is launched with `setsid`,
+and `stop-servers.sh` signals the whole process group, so no orphaned child keeps
 holding a port after a stop.
 
 ## Pipeline
@@ -54,6 +59,7 @@ holding a port after a stop.
 | 4. Pixel parity | `npm run pixel` | pass/fail per framework per state (pixel diff vs React) |
 | 5. Optimize | `npm run optimize` | card-cropped `images/<framework>/*.jpg` |
 | 6. Montage | `npm run montage` | `images/comparison-*.png` |
+| — Docs | `npm run check:docs` | documented npm commands name their working directory |
 | — Tests | `npm test` | regression tests for the tooling's failure modes |
 
 Note the ordering: `parity` is the **live DOM/geometry/state** check and does not
@@ -151,7 +157,7 @@ favicon URL fails, any non-favicon 404 fails, and `pageerror` is never ignored.
 - Captures with more colour variety than a real app screen would produce
 - **An incomplete set** — anything other than exactly seven framework directories with exactly five state files each, or an extra file standing in for a required state
 - **A stale or partial report** — entries missing a framework, marked failed, with `renderedItems != 100`, no visible empty state, non-empty `errors`, or `labelRects` lacking the badge/footer boxes for any state
-- **A mixed capture generation** — full verification requires all seven entries to share one `captureRunId` (a report stamped by an incremental `npm run capture:<fw>` fails, so "35 fresh" can never be claimed from a partial run). A report with no `__meta` freshness block fails too. `npm run verify --framework <name>` checks one framework alone, without claiming the full set
+- **A mixed capture generation** — full verification requires all seven entries to each carry their *own* non-empty `captureRunId` equal to `__meta.captureRunId` (the meta id is never used as a fallback for an entry that lost its own). A report stamped by an incremental `npm run capture:<fw>` fails, so "35 fresh" can never be claimed from a partial run. A report with no `__meta` freshness block fails too. `npm run verify --framework <name>` checks one framework alone, without claiming the full set, but still rejects that entry if its own id is missing, empty or not a string
 
 ## What `build-montage.js` rejects
 

@@ -98,6 +98,9 @@ want() { [ -z "$ONLY" ] || [ "$1" = "$ONLY" ]; }
 
 # PIDs launched by *this* run, so a partial failure stops only what we started.
 STARTED_PIDS=()
+# name -> pid launched this run, so wait_port can tell "our process died before
+# recording state" (a real failure) from "state not written yet" (keep polling).
+declare -A STARTED_PID_OF=()
 
 start() {
   local name="$1"; shift
@@ -113,6 +116,29 @@ start() {
     >"$LOGS/$name.log" 2>&1 &
   local pid=$!
   STARTED_PIDS+=("$pid")
+  STARTED_PID_OF["$name"]="$pid"
+}
+
+# A state file written by an *earlier* run (whose process is gone) must never be
+# read as this run's identity: wait_port would see the old PID, notice it is
+# dead and abort a startup that is actually fine. Quarantine such records before
+# launching anything (quarantine, not delete, so the stale record stays
+# inspectable). A state file whose process is still alive and verified is left
+# alone -- it may belong to a server on a different port that this run did not
+# target (only a port collision, caught by the preflight, is fatal).
+quarantine_stale_states() {
+  local name stale
+  for name in $FRAMEWORKS; do
+    want "$name" || continue
+    stale="$LOGS/$name.state"
+    [ -e "$stale" ] || continue
+    if verify_state "$stale"; then
+      echo "start-servers.sh: leaving $name.state in place ($STATE_REASON)" >&2
+    else
+      echo "start-servers.sh: quarantining stale $name.state: $STATE_REASON" >&2
+      quarantine_state "$stale" "$LOGS"
+    fi
+  done
 }
 
 # True when something already accepts TCP connections on the port. Uses bash's
@@ -149,6 +175,10 @@ if [ "$FAILED" -ne 0 ]; then
   echo "start-servers.sh: preflight failed; no servers were started" >&2
   exit 1
 fi
+
+# Clear stale state records (dead PIDs / old run tokens) before launching, so
+# wait_port can never mistake an earlier run's file for this run's identity.
+quarantine_stale_states
 
 # --- JavaScript frameworks: Vite dev servers ------------------------------
 if want react; then
@@ -215,34 +245,53 @@ wait_port() {
   local name="$1" port="$2"
   if ! want "$name"; then return; fi
   # serve.sh writes the state file from inside the new session, just after
-  # setsid forks, so it may not exist yet on the first read. Poll for it until
-  # the deadline instead of failing on the very first probe.
+  # setsid forks, so it may not exist yet on the first read. Poll for a *valid*
+  # state until the deadline instead of failing on the very first probe.
+  #
+  # "Valid" means the state is this run's -- its run_token equals RUN_TOKEN and
+  # its recorded identity verifies against live /proc (still alive, not a
+  # recycled PID, still the group leader). A stale state file left by an earlier
+  # run -- any earlier token, dead PID included -- is *not* replaced, so it must
+  # never be treated as a final failure: keep polling until the deadline. Only a
+  # process this run actually launched that exits before recording a valid state
+  # aborts immediately.
   local deadline=$(( $(date +%s) + READY_TIMEOUT ))
-  local pid=""
-  while [ -z "$pid" ] && [ "$(date +%s)" -lt "$deadline" ]; do
-    pid="$(state_pid_for "$name")"
-    [ -n "$pid" ] || sleep 1
-  done
-  if [ -z "$pid" ]; then
-    echo "  $name: no PID recorded; cannot verify readiness" >&2
-    FAILED=1
-    return 1
-  fi
+  local live="${STARTED_PID_OF[$name]:-}"
+  local state="$LOGS/$name.state"
+  local reason="state file not written yet"
   while [ "$(date +%s)" -lt "$deadline" ]; do
-    # The PID we launched must still be alive before we accept an HTTP response:
-    # otherwise the response could come from something else entirely.
-    if ! kill -0 "$pid" 2>/dev/null; then
-      echo "  $name process (pid $pid) exited before becoming ready" >&2
+    if verify_state "$state" \
+       && [ "$(state_get "$state" run_token)" = "$RUN_TOKEN" ]; then
+      # The state is ours and the recorded process identity is live. Require the
+      # process that serves this port to still be that PID before trusting an
+      # HTTP response: otherwise the response could come from a foreign server.
+      local pid="$STATE_PID"
+      while [ "$(date +%s)" -lt "$deadline" ]; do
+        if ! kill -0 "$pid" 2>/dev/null; then
+          echo "  $name process (pid $pid) exited before becoming ready" >&2
+          FAILED=1
+          return 1
+        fi
+        if curl -sf -o /dev/null "http://127.0.0.1:$port/"; then
+          echo "  $name ready on $port"
+          return 0
+        fi
+        sleep 1
+      done
+      break
+    fi
+    reason="$STATE_REASON"
+    # A launcher we started that is already gone cannot ever write a valid state.
+    if [ -n "$live" ] && ! kill -0 "$live" 2>/dev/null; then
+      echo "  $name process (pid $live) exited before recording its state" >&2
       FAILED=1
       return 1
     fi
-    if curl -sf -o /dev/null "http://127.0.0.1:$port/"; then
-      echo "  $name ready on $port"
-      return 0
-    fi
+    # Re-lookup: setsid's child may have been created since the last probe.
+    live="${STARTED_PID_OF[$name]:-}"
     sleep 1
   done
-  echo "  $name did not become ready within ${READY_TIMEOUT}s" >&2
+  echo "  $name did not become ready within ${READY_TIMEOUT}s ($reason)" >&2
   FAILED=1
   return 1
 }

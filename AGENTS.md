@@ -41,6 +41,7 @@ npm run parity    # DOM, geometry, content and state equality  (needs live serve
 npm run pixel     # pixel diff vs the React reference          (works offline)
 npm run optimize  # card-cropped docs/images/*/*.jpg  (works from any cwd)
 npm run montage   # docs/images/comparison-*.png
+npm run check:docs # documented npm commands name their working directory
 npm test          # regression tests for the tooling's failure modes
 bash scripts/stop-servers.sh
 ```
@@ -51,11 +52,19 @@ reads the saved screenshots and `screenshot-report.json`, so it works without an
 server running. `npm run parity` and `npm run capture` need all seven servers up.
 
 `npm run capture` is a full generation: it stamps every entry with one
-`captureRunId` and writes `__meta`. `npm run verify` (full mode) requires all
-seven entries to share that id, so an incremental `npm run capture:react` — which
-stamps a new id for one framework — leaves the set unfit for a full verification
-rather than silently mixing generations. `npm run verify --framework <name>`
-gives a scoped check for that one framework.
+`captureRunId` and writes `__meta`. `npm run verify` (full mode) requires every
+framework entry to carry its **own** non-empty `captureRunId` equal to
+`__meta.captureRunId` — the meta id is never used as a fallback for an entry that
+lost its own, so a stripped id cannot pass by inheriting the meta's. An
+incremental `npm run capture:react` — which stamps a new id for one framework —
+leaves the set unfit for a full verification rather than silently mixing
+generations. `npm run verify --framework <name>` gives a scoped check for that one
+framework, but still rejects it if its own id is missing, empty or not a string.
+
+`npm run check:docs` (`docs/check-doc-commands.js`) proves every documented
+`update-readme` invocation names the working directory it needs
+(`benchmarks/scripts`), so a published command can never drift away from the
+package.json that defines it.
 
 ## Gotchas
 
@@ -80,8 +89,12 @@ gives a scoped check for that one framework.
   the group; otherwise it quarantines the record and warns. The stored command
   line is diagnostic only — npm and `setsid` rewrite their own titles. A recycled
   PID or a stale legacy `.pid` file is never trusted, so a stale record cannot
-  kill a foreign process. Unknown `--only` and malformed numeric flags exit 2
-  before anything starts.
+  kill a foreign process. Before launching, a state file whose process is gone (or
+  whose identity no longer verifies) is quarantined, and readiness is only accepted
+  once the state carries the current run's `run_token` and verifies against live
+  `/proc` — a stale record can never abort a valid startup, and a process this run
+  launched that dies before recording a valid state still fails. Unknown `--only`
+  and malformed numeric flags exit 2 before anything starts.
 - **Never hardcode the card height.** Text metrics differ per platform: the same
   capture is 792px tall on the Ubuntu CI runner and 796px on this sandbox. The
   verifier therefore checks left/width exactly and, for height, requires the seven
@@ -100,6 +113,11 @@ gives a scoped check for that one framework.
   only flex child of `<body>`. Overriding this collapses the card to 389px.
 - **Completion is 1-based.** Use `(i + 1) % 3 === 0` so items 3, 6, …, 99 are
   completed (33 completed, 67 remaining).
+- **Documented commands must be reproducible.** Every documented `update-readme`
+  invocation in any Markdown file must name `benchmarks/scripts` as its working
+  directory (an inline `cd benchmarks/scripts && npm run update-readme`, or a
+  fenced block that has already `cd`'d there). `npm run check:docs` enforces this
+  and also proves the script exists in `benchmarks/scripts/package.json`.
 - **The Rust dists are build output.** `dist/` is gitignored; rebuild with
   `trunk build` after changing a Rust implementation. Blade must render
   `<li class="todo-item">`, never a `<div>` inside `<ul>`.

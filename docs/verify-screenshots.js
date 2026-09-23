@@ -123,10 +123,11 @@ function loadReport(dir) {
 }
 
 /**
- * Prove the set is one capture generation. In full mode all seven entries must
- * carry the same captureRunId, so artefacts from different invocations can never
- * be presented as a single fresh set (an incremental capture writes a new id).
- * A scoped run still requires the entry to carry freshness metadata.
+ * Prove the set is one capture generation. Every framework entry must carry its
+ * *own* non-empty captureRunId that equals report.__meta.captureRunId. The meta
+ * id is deliberately not a fallback: an entry that lost its id would otherwise
+ * inherit the meta's and be accepted, leaving that entry's freshness unproven.
+ * A scoped run still requires the entry to carry its own id.
  */
 function checkFreshness(report, frameworks, { fullSet }) {
   let failures = 0;
@@ -140,31 +141,34 @@ function checkFreshness(report, frameworks, { fullSet }) {
   if (meta.schema !== EXPECTED_SCHEMA) {
     fail(`: report schema ${meta.schema} != expected ${EXPECTED_SCHEMA}`);
   }
+  const metaId = meta.captureRunId;
+  if (typeof metaId !== 'string' || !metaId) {
+    fail(': report __meta.captureRunId is missing or not a non-empty string');
+  }
 
-  const runIds = new Map();
   for (const fw of frameworks) {
     const entry = report[fw];
     if (!entry || entry.failed) continue; // other checks report these
-    if (!entry.captureRunId && !meta.captureRunId) {
-      fail(`: ${fw} has no captureRunId (cannot prove freshness)`);
+    // Every entry needs its own id, of the right type, matching the meta id.
+    if (typeof entry.captureRunId !== 'string' || !entry.captureRunId) {
+      fail(`: ${fw} has no captureRunId of its own (cannot prove freshness)`);
       continue;
     }
-    // An incremental capture writes a fresh __meta.captureRunId but keeps the
-    // other frameworks' older entries, so their per-entry id differs. A full
-    // verification must reject that: the seven entries must share one id.
-    const ids = new Set([entry.captureRunId, meta.captureRunId].filter(Boolean));
-    if (ids.size > 1) {
-      fail(`: ${fw} captureRunId ${entry.captureRunId} != report ${meta.captureRunId}`);
+    if (entry.captureRunId !== metaId) {
+      fail(`: ${fw} captureRunId ${entry.captureRunId} != report ${metaId}`);
     }
-    runIds.set(fw, entry.captureRunId);
   }
   if (fullSet) {
-    const unique = new Set([...runIds.values(), meta.captureRunId].filter(Boolean));
-    if (unique.size > 1) {
+    // All seven entries must share the one meta id, so an incremental capture
+    // (fresh meta id, older sibling entries) cannot be presented as a full set.
+    const ids = new Set(frameworks.map((fw) => report[fw] && report[fw].captureRunId));
+    ids.delete(undefined);
+    ids.delete(null);
+    if (ids.size > 1) {
       fail(
         `: frameworks were captured in different generations ` +
-        `(${unique.size} distinct captureRunId values): ` +
-        [...runIds.entries()].map(([k, v]) => `${k}=${v}`).join(', ')
+        `(${ids.size} distinct captureRunId values): ` +
+        frameworks.map((fw) => `${fw}=${report[fw] && report[fw].captureRunId}`).join(', ')
       );
     }
     if (meta.fullSet !== true) {

@@ -318,7 +318,7 @@ jobs:
 After running benchmarks:
 
 1. Review `benchmarks/results/comprehensive-benchmark-results.json`
-2. Regenerate the **Benchmark Results** section of [README.md](README.md) with `npm run update-readme`
+2. Regenerate the **Benchmark Results** section of [README.md](README.md) with `cd benchmarks/scripts && npm run update-readme`
 3. Create visualizations/charts if needed
 4. Analyze performance bottlenecks
 5. Optimize frameworks that underperform

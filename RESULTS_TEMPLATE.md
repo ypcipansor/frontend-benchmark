@@ -198,4 +198,4 @@ npm install
 npm run benchmark:docker:full
 ```
 
-Then run `npm run update-readme` to regenerate the **Benchmark Results** section of [README.md](README.md) with the new data.
+Then run `cd benchmarks/scripts && npm run update-readme` to regenerate the **Benchmark Results** section of [README.md](README.md) with the new data.
