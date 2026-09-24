@@ -2,7 +2,18 @@ name: Auto-merge benchmark results PRs
 
 # Whenever a check suite completes, squash-merge any open "Update Benchmark Results"
 # PR authored by github-actions[bot] whose check runs are all green (success/skipped).
+#
+# check_suite alone is not enough. GitHub's recursion guard does not send
+# check_suite events for suites created by GitHub Actions, so the results PR's
+# own CI (dispatched with GITHUB_TOKEN) never wakes this job — only third-party
+# suites like CodeQL would, and those can finish before the CI is green. Listen
+# on workflow_run for the pull-request CI workflows instead: it fires whenever
+# they complete regardless of what triggered them, guaranteeing a merge
+# evaluation after the dispatched checks land on the PR head.
 on:
+  workflow_run:
+    workflows: ["Basic Checks", "Frontend Benchmark CI"]
+    types: [completed]
   check_suite:
     types: [completed]
 
