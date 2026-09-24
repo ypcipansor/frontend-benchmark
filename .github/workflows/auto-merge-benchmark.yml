@@ -12,6 +12,9 @@ permissions:
 
 jobs:
   auto-merge:
+    # Check-run name == job name. Keep this in sync with SELF_NAME below, which
+    # is used to exclude this workflow's own run from the merge verdict.
+    name: Auto-merge benchmark PRs
     runs-on: ubuntu-latest
     steps:
       - name: Auto-merge benchmark PRs with all-green checks
@@ -23,7 +26,7 @@ jobs:
 
           prs=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
             "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100" \
-            | jq -r '.[] | select((.user.login == "github-actions[bot]") and (.title | startswith("Update Benchmark Results"))) | .number + " " + .head.sha')
+            | jq -r '.[] | select((.user.login == "github-actions[bot]") and (.title | startswith("Update Benchmark Results"))) | "\(.number) \(.head.sha)"')
 
           if [ -z "$prs" ]; then
             echo "No open benchmark-results PRs."
