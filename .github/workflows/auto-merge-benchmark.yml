@@ -12,6 +12,9 @@ permissions:
 
 jobs:
   auto-merge:
+    # Check-run name == job name. Keep this in sync with SELF_NAME below, which
+    # is used to exclude this workflow's own run from the merge verdict.
+    name: Auto-merge benchmark PRs
     runs-on: ubuntu-latest
     steps:
       - name: Auto-merge benchmark PRs with all-green checks

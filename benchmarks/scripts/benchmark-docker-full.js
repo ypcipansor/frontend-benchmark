@@ -461,6 +461,16 @@ async function main() {
   console.log('\n' + '='.repeat(80));
   
   const startTime = Date.now();
+
+  // Stamp this run so the README updater can reject environment.json left over
+  // from a previous run in a reused results directory. Without this, a manual
+  // run that skips `capture-env` would attribute its measurements to the older
+  // run's machine and workflow URL.
+  fs.writeFileSync(
+    path.join(RESULTS_DIR, 'run-provenance.json'),
+    JSON.stringify({ runId: `${startTime}-${process.pid}`, startedAt: new Date(startTime).toISOString() }, null, 2)
+  );
+
   const results = [];
   
   for (const framework of frameworks) {

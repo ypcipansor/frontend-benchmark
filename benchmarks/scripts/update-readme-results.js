@@ -84,14 +84,48 @@ function displayName(framework) {
 
 // Optional environment metadata captured by CI (runner specs, browser, Docker,
 // load tool, workflow run). Written to benchmarks/results/environment.json.
-function readEnvironment() {
+//
+// environment.json and the benchmark measurements live in separate gitignored
+// files, so a manual run that reuses a results directory without re-running
+// capture-env would otherwise publish the PREVIOUS run's machine and workflow
+// URL next to this run's numbers. To prevent that, metadata is only accepted
+// when it provably belongs to the current results:
+//   - both files carry a `benchmarkRunId` (from run-provenance.json) and they
+//     match, or
+//   - environment.json was generated no earlier than the newest measurement.
+// Anything else is treated as absent (renders "_not captured_").
+function readEnvironment(results) {
   const envPath = path.join(RESULTS_DIR, 'environment.json');
   if (!fs.existsSync(envPath)) return null;
+  let env;
   try {
-    return JSON.parse(fs.readFileSync(envPath, 'utf-8'));
+    env = JSON.parse(fs.readFileSync(envPath, 'utf-8'));
   } catch (e) {
     return null;
   }
+
+  const provenancePath = path.join(RESULTS_DIR, 'run-provenance.json');
+  let currentRunId = null;
+  try {
+    currentRunId = JSON.parse(fs.readFileSync(provenancePath, 'utf-8')).runId || null;
+  } catch (e) { /* no provenance file */ }
+
+  if (currentRunId || env.benchmarkRunId) {
+    // Fresh runs stamp provenance; require an exact association.
+    return (currentRunId && env.benchmarkRunId === currentRunId) ? env : null;
+  }
+
+  // Legacy path (no provenance file): fall back to a timestamp sanity check.
+  const newest = (results || [])
+    .map(r => Date.parse(r.timestamp))
+    .filter(t => !isNaN(t))
+    .reduce((a, b) => Math.max(a, b), 0);
+  const captured = Date.parse(env.generatedAt);
+  if (newest && !isNaN(captured) && captured < newest) {
+    console.warn('environment.json predates the benchmark results; treating it as stale.');
+    return null;
+  }
+  return env;
 }
 
 // Pull the Lighthouse table from an already-rendered README so a run whose
@@ -119,8 +153,7 @@ function extractPreviousLighthouse(readme) {
 // manual `npm run update-readme`), fields are reported as "not captured" rather
 // than substituting specs from an unrelated run — publishing invented hardware
 // would corrupt cross-run comparisons.
-function renderTestEnvironment() {
-  const env = readEnvironment();
+function renderTestEnvironment(env) {
   const runner = (env && env.runner) || {};
   const unknown = '_not captured_';
   const rows = [
@@ -178,6 +211,17 @@ function generateBenchmarkSection(results, previousReadme) {
   // fresh full 7-framework run is executed in one environment.
   md += '> ⚠️ **Provenance:** Values below were collected across separate runs and environments and may not be directly comparable. A single, fresh, full 7-framework run in one environment is needed before rankings can be treated as authoritative.\n\n';
   md += '> 📐 **Comparability:** Throughput and memory figures are **not directly comparable across runs** when the runner/host or container resource limits change — a different CPU allocation, cgroup memory limit, or kernel changes the measured req/s and RSS substantially. Large swings versus a previous run (e.g. throughput or RSS dropping by more than half) usually indicate an environment change, not a framework regression. Compare only runs that share the Test Environment below.\n\n';
+
+  // The corrected stress sampler records per-signal parse counts
+  // (cpuSamples/memorySamples). Samples without them came from the older
+  // harness, whose fixed-iteration loop folded idle readings into the
+  // under-load window, so their throughput is not a valid baseline.
+  const stressSamples = results.flatMap(r => (r.stress && r.stress.samples) || []);
+  const preFixHarness = stressSamples.length > 0 &&
+    !stressSamples.some(s => s.containerStats && typeof s.containerStats.cpuSamples === 'number');
+  if (preFixHarness) {
+    md += '> 🧪 **Harness version:** The stress-test figures below were collected **before the sampler fix** (the old fixed-iteration loop mixed idle readings into the load window). They are kept for continuity only and are **not a valid baseline** — a fresh run is required before comparing throughput against them.\n\n';
+  }
 
   // ----- Quick Highlights -----
   md += '### Quick Highlights\n\n';
@@ -303,9 +347,19 @@ function generateBenchmarkSection(results, previousReadme) {
 
   // Under-load resource usage, sampled by the stress test while autocannon
   // drove the container. Rendered only when such samples exist.
+  //
+  // A sample is only usable if the corresponding signal was actually parsed:
+  // `memorySamples` / `cpuSamples` (written by the corrected sampler) count
+  // successful parses, so a failed memory parse yields N/A instead of a
+  // misleading 0 MB. Older result files lack these counters; fall back to
+  // `samples` for them so existing artifacts still render.
+  const cpuCount = (c) => (c && typeof c.cpuSamples === 'number') ? c.cpuSamples : (c ? c.samples : 0);
+  const memCount = (c) => (c && typeof c.memorySamples === 'number') ? c.memorySamples : (c ? c.samples : 0);
+
   const peakUnderLoad = (r) => {
     const s = peakStressSample(r);
-    if (!(s && s.containerStats && s.containerStats.cpu && s.containerStats.memory && s.containerStats.samples > 0)) return null;
+    if (!(s && s.containerStats && s.containerStats.cpu && s.containerStats.memory)) return null;
+    if (s.containerStats.samples <= 0) return null;
     return s;
   };
   if (results.some(r => peakUnderLoad(r))) {
@@ -320,13 +374,19 @@ function generateBenchmarkSection(results, previousReadme) {
         return;
       }
       const c = s.containerStats;
-      md += `| ${r.framework} | ${formatNumber(s.concurrency)} | ${c.cpu.average.toFixed(2)}% / ${c.cpu.max.toFixed(2)}% | ${c.memory.averageMB.toFixed(2)} MB / ${c.memory.maxMB.toFixed(2)} MB |\n`;
+      const cpu = cpuCount(c) > 0
+        ? `${c.cpu.average.toFixed(2)}% / ${c.cpu.max.toFixed(2)}%`
+        : 'N/A';
+      const mem = memCount(c) > 0
+        ? `${c.memory.averageMB.toFixed(2)} MB / ${c.memory.maxMB.toFixed(2)} MB`
+        : 'N/A';
+      md += `| ${r.framework} | ${formatNumber(s.concurrency)} | ${cpu} | ${mem} |\n`;
     });
     md += '\n';
   }
 
   // ----- Test Environment -----
-  md += renderTestEnvironment() + '\n';
+  md += renderTestEnvironment(readEnvironment(results)) + '\n';
 
   md += '---\n\n';
   md += '### Testing Methodology\n\n';

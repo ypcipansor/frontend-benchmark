@@ -104,9 +104,13 @@ function sampleContainerStats(containerName, durationSeconds, intervalMs = DEFAU
       const mx = arr => (arr.length ? Math.max(...arr) : 0);
       resolve({
         // Actual elapsed wall time and successful sample count, so consumers can
-        // distinguish a truncated window from a full one.
+        // distinguish a truncated window from a full one. Per-signal counts let
+        // the README render N/A for a field whose parsing failed rather than
+        // publishing a misleading 0.
         durationSeconds: Math.round((Date.now() - startTime) / 1000),
         samples: stats.cpuPercent.length,
+        cpuSamples: stats.cpuPercent.length,
+        memorySamples: stats.memoryMB.length,
         attempts,
         cpu: { average: avg(stats.cpuPercent), max: mx(stats.cpuPercent) },
         memory: {

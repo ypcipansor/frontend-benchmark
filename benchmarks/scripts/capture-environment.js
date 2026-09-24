@@ -61,17 +61,26 @@ const repo = process.env.GITHUB_REPOSITORY;
 const runId = process.env.GITHUB_RUN_ID;
 const inferredRunUrl = (serverUrl && repo && runId) ? `${serverUrl}/${repo}/actions/runs/${runId}` : null;
 
+// Link this capture to the benchmark run it describes, so a later consumer can
+// detect metadata left over from a previous run.
+const provenancePath = path.join(RESULTS_DIR, 'run-provenance.json');
+let benchmarkRunId = null;
+try {
+  benchmarkRunId = JSON.parse(fs.readFileSync(provenancePath, 'utf-8')).runId || null;
+} catch (e) { /* no provenance: caller captured standalone */ }
+
 const env = {
   runner: {
     os: process.env.BENCH_OS || (process.env.GITHUB_ACTIONS ? 'ubuntu-latest (GitHub-hosted)' : `${os.type()} ${os.release()} (${os.arch()})`),
     cpu: process.env.BENCH_CPU || `${cpus} vCPU`,
     memory: process.env.BENCH_MEMORY || `${(memKb / 1024 / 1024).toFixed(2)} GiB`,
-    node: `24 (${process.version})`
+    node: process.version
   },
   chrome: chromeVersion(),
   docker: dockerVersion(),
   loadTool: loadToolVersion(),
   runUrl: process.env.BENCH_RUN_URL || inferredRunUrl,
+  benchmarkRunId,
   artifactRetentionDays: 90,
   generatedAt: new Date().toISOString()
 };
