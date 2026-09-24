@@ -21,6 +21,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  actions: write
 
 jobs:
   run-benchmark:
@@ -139,3 +140,14 @@ jobs:
             --head "$BRANCH_NAME" \
             --label "benchmark-results" \
             --label "automated"
+
+          # A branch pushed with GITHUB_TOKEN does not trigger pull_request
+          # workflows, so the PR head would have no check runs and the
+          # auto-merge job (which requires green checks on the head SHA) would
+          # never merge it. workflow_dispatch is the one event GITHUB_TOKEN may
+          # still trigger, so run the pull-request CI workflows explicitly
+          # against the results branch; their check runs attach to the head SHA
+          # and gate the merge.
+          echo "Triggering CI for $BRANCH_NAME"
+          gh workflow run basic-checks.yml --ref "$BRANCH_NAME"
+          gh workflow run benchmark.yml --ref "$BRANCH_NAME"
