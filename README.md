@@ -212,7 +212,8 @@ The screenshots above are not hand-picked — they are produced and validated by
 
 ```bash
 cd docs
-npm run check:node          # this tooling needs Node.js 20+ (Playwright 1.63)
+npm run check:node          # this tooling needs Node.js 22.22.3+ (Angular CLI 22; Playwright's floor is lower)
+npm run check:node-engines  # every Node.js pin in .github/workflows/ satisfies that floor
 npm ci                      # Playwright + pngjs, from the committed lockfile
 npx playwright install chromium
 python3 -m pip install -r requirements.txt   # NumPy + Pillow
@@ -226,7 +227,7 @@ npm run optimize            # 5. card-cropped JPEGs for this README
 npm run montage             # 6. side-by-side comparison montages
 npm run check:docs          # 7. documented npm commands name their working directory
 npm run check:css           # 8. shared/styles/todo.css has not drifted in any copy
-npm test                    # 9. regression tests for the tooling's failure modes
+npm test                    # 10. 148 regression tests for the tooling's failure modes
 bash scripts/stop-servers.sh
 ```
 
@@ -282,8 +283,8 @@ Making seven runtimes agree required real corrections — every one of them veri
 
 | Tool | Needed for |
 |------|-----------|
-| Node.js 18+ | React, Vue, Angular |
-| Node.js 20+ | `docs/` screenshot & parity tooling (Playwright 1.63; enforced by `npm run check:node`) |
+| Node.js 18+ | React, Vue (Angular needs the newer floor below) |
+| Node.js 22.22.3+ (or 24.15+, or 26+) | `docs/` screenshot & parity tooling and the Angular 22 dev server (`@angular/cli` 22; enforced by `npm run check:node`) |
 | Rust 1.70+ and `trunk` | Leptos, Yew, Dioxus |
 | `wasm32-unknown-unknown` target | Leptos, Yew, Dioxus |
 | PHP 8.2+ and Composer | Blade.php |

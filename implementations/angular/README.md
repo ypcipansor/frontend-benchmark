@@ -16,12 +16,19 @@ Optimized crops live in [`docs/images/angular/`](../../docs/images/angular/); th
 
 | | |
 |---|---|
-| Framework | Angular 21.2 |
+| Framework | Angular 22.1 |
 | Language | TypeScript 5.9 |
 | Components | Standalone components |
 | State | Angular Signals |
+| Node.js | 22.22.3+ (or 24.15+, or 26+) — `@angular/cli` 22 refuses older runtimes |
 
 ## Running it
+
+Node.js 22.22.3+ is required: Angular CLI 22 declares
+`engines.node ^22.22.3 || ^24.15.0 || >=26.0.0` and exits on anything older. The
+requirement is declared in this package's `engines.node` and enforced by
+`npm run check:node-engines` in `docs/`, which fails if any CI workflow pins an
+older Node.
 
 ```bash
 npm install

@@ -36,29 +36,37 @@ fi
 
 stopped=0
 skipped=0
+finished=0
 
 for statefile in "$LOGS"/*.state; do
   [ -e "$statefile" ] || continue
   name="$(basename "$statefile" .state)"
-  if verify_state "$statefile"; then
+  verify_state "$statefile"
+  rc=$?
+  if [ "$rc" -eq 0 ]; then
     pid="$STATE_PID"
     echo "stopping $name ($STATE_REASON)"
     # Signal the whole group: the group id equals the recorded PID because
-    # start-servers.sh launches each server under setsid.
-    if kill -0 -- "-$pid" 2>/dev/null; then
-      kill -TERM "-$pid" 2>/dev/null || true
-    else
-      kill -TERM "$pid" 2>/dev/null || true
-    fi
+    # start-servers.sh launches each server under setsid. The group is re-read
+    # from /proc for liveness -- `kill -0 -- -$pid` also succeeds for a group of
+    # zombies, so it cannot tell "still running" from "already dead".
+    kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
     for _ in $(seq 1 20); do
-      kill -0 -- "-$pid" 2>/dev/null || break
+      group_has_live_members "$pid" || break
       sleep 0.25
     done
-    if kill -0 -- "-$pid" 2>/dev/null; then
-      kill -KILL "-$pid" 2>/dev/null || true
+    if group_has_live_members "$pid"; then
+      kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
     fi
     rm -f "$statefile"
     stopped=$((stopped + 1))
+  elif [ "$rc" -eq 2 ]; then
+    # Leader gone and no live member left in the group: the server has already
+    # exited on its own, so the record is spent. Remove it rather than
+    # quarantining it -- nothing was skipped and nothing needs signalling.
+    echo "stop-servers.sh: $name already stopped ($STATE_REASON)"
+    rm -f "$statefile"
+    finished=$((finished + 1))
   else
     echo "stop-servers.sh: refusing to signal $name: $STATE_REASON" >&2
     quarantine_state "$statefile" "$LOGS"
@@ -74,4 +82,4 @@ for pidfile in "$LOGS"/*.pid; do
   quarantine_state "$pidfile" "$LOGS"
 done
 
-echo "stopped $stopped server(s), skipped $skipped unverifiable record(s)"
+echo "stopped $stopped server(s), $finished already finished, skipped $skipped unverifiable record(s)"

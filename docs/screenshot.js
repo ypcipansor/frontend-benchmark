@@ -284,11 +284,26 @@ async function captureFramework(browser, fw, opts) {
       process.stdout.write(`capturing ${fw.name} ... `);
       try {
         const entry = await captureFramework(browser, fw, opts);
-        report[fw.name] = entry;
-        console.log(`ok (items=${entry.renderedItems}, errors=${entry.errors.length})`);
         if (entry.errors.length) {
+          // A capture that observed a console/network error is not a usable
+          // artefact: the images may show a broken state that pixel/parity
+          // comparison would happily accept. Invalidate the whole framework --
+          // delete its screenshots and record a failure -- so a stale or
+          // damaged set can never be read as a fresh, clean capture.
           for (const err of entry.errors) console.error(`    ! ${err}`);
+          fs.rmSync(path.join(opts.out, fw.name), { recursive: true, force: true });
+          delete report[fw.name];
+          report[fw.name] = {
+            failed: true,
+            error: `${entry.errors.length} console/network error(s)`,
+            errors: entry.errors,
+            captureRunId: opts.captureRunId,
+          };
+          console.log(`FAILED: ${entry.errors.length} console/network error(s)`);
           failures.push(`${fw.name}: ${entry.errors.length} console/network error(s)`);
+        } else {
+          report[fw.name] = entry;
+          console.log(`ok (items=${entry.renderedItems}, errors=0)`);
         }
       } catch (e) {
         console.log(`FAILED: ${e.message}`);

@@ -30,11 +30,48 @@ const EXPECTED = {
   cardLeft: 420,
   cardWidth: 600,
   viewportWidth: 1440,
+  viewportHeight: 1024,
   populatedHeight: [700, 900],
   emptyHeight: [400, 700],
   // All frameworks run on the same host, so their heights must agree closely.
   heightAgreement: 6,
 };
+
+/**
+ * The viewport a capture must declare. Every screenshot must then be
+ * `viewport * deviceScaleFactor` pixels, so a capture at the wrong size (a
+ * different window, a stale image from another viewport) is rejected rather than
+ * silently accepted because it happens to look plausible.
+ */
+function checkViewport(entry, fw, fail) {
+  const vp = entry && entry.viewport;
+  if (!vp || typeof vp !== 'object') {
+    fail(`: ${fw} has no viewport recorded`);
+    return;
+  }
+  if (vp.width !== EXPECTED.viewportWidth || vp.height !== EXPECTED.viewportHeight) {
+    fail(
+      `: ${fw} viewport ${vp.width}x${vp.height} != expected ` +
+      `${EXPECTED.viewportWidth}x${EXPECTED.viewportHeight}`
+    );
+  }
+  const dpr = vp.deviceScaleFactor === undefined ? 1 : vp.deviceScaleFactor;
+  if (typeof dpr !== 'number' || !Number.isFinite(dpr) || dpr <= 0) {
+    fail(`: ${fw} has an invalid deviceScaleFactor (${vp.deviceScaleFactor})`);
+  }
+}
+
+/** The pixel size `viewport * dpr` demands for this entry, or null if unknown. */
+function expectedSize(entry) {
+  const vp = entry && entry.viewport;
+  if (!vp || typeof vp !== 'object') return null;
+  const dpr = vp.deviceScaleFactor === undefined ? 1 : vp.deviceScaleFactor;
+  if (typeof dpr !== 'number' || !Number.isFinite(dpr) || dpr <= 0) return null;
+  const w = vp.width * dpr;
+  const h = vp.height * dpr;
+  if (!Number.isFinite(w) || !Number.isFinite(h)) return null;
+  return { width: Math.round(w), height: Math.round(h) };
+}
 
 function parseArgs() {
   const a = process.argv.slice(2);
@@ -191,6 +228,8 @@ function checkReport(dir, frameworks) {
     if (!entry) { fail(`: no entry for ${fw}`); continue; }
     if (entry.failed || entry.error) { fail(`: ${fw} recorded ${entry.error}`); continue; }
     const problems = [];
+    // The declared viewport (and DPR) is the size contract for every screenshot.
+    checkViewport(entry, fw, (suffix) => problems.push(`viewport${suffix}`));
     if (entry.renderedItems !== EXPECTED_REPORT.renderedItems)
       problems.push(`renderedItems=${entry.renderedItems} expected ${EXPECTED_REPORT.renderedItems}`);
     if (entry.emptyStateVisible !== true) problems.push('emptyStateVisible is not true');
@@ -230,6 +269,16 @@ function main() {
   const t0 = Date.now();
   if (opts.framework) console.log(`Scoped verification: ${opts.framework} only`);
 
+  // The report carries each entry's viewport, which pins the required pixel size
+  // of every screenshot. Load it up front so a missing/malformed report is
+  // reported once, and the size check has its data.
+  const loaded = loadReport(opts.dir);
+  const reportForDimensions = loaded.report || null;
+  if (loaded.error) {
+    failures++;
+    console.log(`  FAIL dimensions: ${loaded.error}`);
+  }
+
   const entries = fs.readdirSync(opts.dir, { withFileTypes: true }).filter((d) => d.isDirectory());
   const found = entries.map((d) => d.name).sort();
   console.log(`Framework directories found: ${found.join(', ') || '(none)'}`);
@@ -267,12 +316,20 @@ function main() {
     }
 
     cardHeights[fw] = {};
+    const entry = reportForDimensions && reportForDimensions[fw];
+    const size = entry ? expectedSize(entry) : null;
     for (const f of files) {
       const file = path.join(dir, f);
       const png = readPng(file);
       const st = byteStats(png);
       const b = whiteBounds(png);
       const problems = [];
+      // Size is part of the capture contract: the report declares the viewport
+      // (and DPR), and each PNG must be exactly viewport * dpr. A capture at the
+      // wrong size cannot be compared meaningfully, so it is rejected here.
+      if (size && (png.width !== size.width || png.height !== size.height)) {
+        problems.push(`size ${png.width}x${png.height} != expected ${size.width}x${size.height}`);
+      }
       if (st.uniqueColors < 200) problems.push(`too few colors (${st.uniqueColors})`);
       if (st.whiteRatio < 0.05) problems.push(`almost no content (whiteRatio=${st.whiteRatio.toFixed(3)})`);
       if (st.whiteRatio > 0.95) problems.push(`mostly white/blank (whiteRatio=${st.whiteRatio.toFixed(3)})`);

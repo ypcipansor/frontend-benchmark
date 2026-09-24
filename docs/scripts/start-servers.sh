@@ -136,6 +136,10 @@ quarantine_stale_states() {
     want "$name" || continue
     stale="$LOGS/$name.state"
     [ -e "$stale" ] || continue
+    # A record is only left in place when its process is alive and verified
+    # (return 0). Anything else -- dead leader with an empty group, a recycled
+    # PID, a foreign group -- is stale, so it is quarantined and never read as
+    # this run's identity.
     if verify_state "$stale"; then
       echo "start-servers.sh: leaving $name.state in place ($STATE_REASON)" >&2
     else

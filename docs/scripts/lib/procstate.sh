@@ -9,12 +9,20 @@
 # Instead each server gets a state file recording a per-run token plus identity
 # data that cannot change for the lifetime of a process:
 #
-#   pid, pgid, starttime (field 22 of /proc/<pid>/stat) and boot_id.
+#   pid, pgid, session, starttime (field 22 of /proc/<pid>/stat) and boot_id.
 #
 # stop-servers.sh only signals a PID when the recorded identity still matches the
 # live process *and* that process is the leader of the group this run created. If
 # anything is missing, malformed or different, the metadata is quarantined and no
 # signal is sent.
+#
+# The leader may legitimately be gone while its group is not: a wrapper can exit
+# on SIGTERM while a child (vite/ng) ignores it and keeps the port. `verify_state`
+# therefore has a second, verified path -- "leader dead, group alive" -- that
+# signals the *group* only when every live member provably belongs to the session
+# the run created (session id == recorded pgid, since setsid gives the leader
+# session id == pid) and none was born before the recorded leader. When no live
+# member remains the record is simply spent (return code 2), not a failure.
 #
 # State files are written atomically (temp file + rename) so an interrupted run
 # can never leave a half-written file that looks valid.
@@ -70,15 +78,17 @@ new_run_token() {
 # renamed into place, so a reader never observes a partial file.
 write_state() {
   local file="$1" pid="$2" token="$3" cmd="$4"
-  local stat_start pgrp boot tmp
+  local stat_start pgrp session boot tmp
   stat_start="$(proc_stat_field "$pid" starttime)" || return 1
   pgrp="$(proc_stat_field "$pid" pgrp)" || return 1
+  session="$(proc_stat_field "$pid" session)" || return 1
   boot="$(proc_boot_id)"
   tmp="${file}.tmp.$$"
   {
     echo "# frontend-benchmark server state (atomic write)"
     echo "pid=$pid"
     echo "pgid=$pgrp"
+    echo "session=$session"
     echo "starttime=$stat_start"
     echo "boot_id=$boot"
     echo "run_token=$token"
@@ -96,6 +106,8 @@ state_get() {
 # Prints a human-readable status and returns:
 #   0 -> the recorded process is alive and is verifiably the one this run started
 #   1 -> cannot verify (missing/malformed metadata, recycled PID, foreign group)
+#   2 -> the leader is gone and its group holds no live member (record is spent,
+#        nothing to signal; this is *not* an unverifiable record)
 # Reads STATE_PID / STATE_REASON after the call.
 verify_state() {
   local file="$1"
@@ -121,7 +133,24 @@ verify_state() {
   STATE_PID="$pid"
 
   if [ ! -e "/proc/$pid" ]; then
-    STATE_REASON="process $pid no longer exists"
+    # The leader is gone. That is not automatically a failure: a wrapper can exit
+    # on SIGTERM while a child (vite/ng) ignores it and keeps the port. Signal the
+    # *group* only if every live member is provably part of the session this run
+    # created. Otherwise quarantine, never signal. And when no live member
+    # remains, the record is simply spent -- the normal "stop after everything has
+    # already exited" case -- so remove it without treating it as a failure.
+    local group_rc
+    verify_group_by_session "$pgid" "$stored_start" "$stored_boot"
+    group_rc=$?
+    if [ "$group_rc" -eq 0 ]; then
+      STATE_REASON="leader $pid is gone but its group $pgid still has verified live members"
+      return 0
+    fi
+    if [ "$group_rc" -eq 2 ]; then
+      STATE_REASON="process $pid no longer exists and its group $pgid is empty"
+      return 2
+    fi
+    STATE_REASON="leader $pid is gone and its group $pgid cannot be verified"
     return 1
   fi
 
@@ -172,6 +201,51 @@ group_has_live_members() {
     return 0
   done
   return 1
+}
+
+# verify_group_by_session <pgid> <recorded_start> <recorded_boot>
+# Prove that every live member of process group <pgid> belongs to the session
+# this benchmark run created, before the caller signals the group. This is the
+# "leader dead, group alive" path: the recorded leader has exited but a child may
+# still hold the port, so a bare `kill -0 -$pgid` (which also succeeds for a
+# group of zombies, or for a recycled group id) is not evidence enough.
+#
+# Returns:
+#   0 -> at least one live member, and all of them are provably ours
+#   1 -> cannot vouch for the group (a member is foreign, or /proc is unreadable)
+#   2 -> no live member remains (the group is spent, nothing to signal)
+#
+# "Provably ours" means, for every live member:
+#   * it was started in the same boot as the leader,
+#   * its session id equals the recorded pgid (setsid made the leader's session
+#     id equal to its pid, and children inherit that session), and
+#   * its starttime is >= the leader's, since no group member can be older than
+#     the leader that created the session.
+verify_group_by_session() {
+  local pgid="$1" recorded_start="$2" recorded_boot="$3"
+  local d pid state pg member_session member_start member_boot found=0
+  [ -n "$pgid" ] || return 1
+  [ -n "$recorded_start" ] || return 1
+  [ -n "$recorded_boot" ] || return 1
+  for d in /proc/[0-9]*; do
+    [ -d "$d" ] || continue
+    pid="${d#/proc/}"
+    pg="$(proc_stat_field "$pid" pgrp)" || return 1
+    [ "$pg" = "$pgid" ] || continue
+    state="$(proc_stat_field "$pid" state)" || return 1
+    [ "$state" = "Z" ] && continue
+    member_session="$(proc_stat_field "$pid" session)" || return 1
+    member_start="$(proc_stat_field "$pid" starttime)" || return 1
+    member_boot="$(proc_boot_id)"
+    # Every member must belong to the session the leader created, in the same
+    # boot, and cannot predate the leader.
+    [ "$member_session" = "$pgid" ] || return 1
+    [ "$member_boot" = "$recorded_boot" ] || return 1
+    [ "$member_start" -ge "$recorded_start" ] 2>/dev/null || return 1
+    found=1
+  done
+  [ "$found" -eq 1 ] && return 0
+  return 2
 }
 
 # quarantine_state <file> <logdir>

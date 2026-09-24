@@ -18,6 +18,7 @@ RUN_TOKEN="$1"; shift
 
 pid=$$
 pgrp="$(sed 's/.*) //' "/proc/$pid/stat" | awk '{print $3}')"
+session="$(sed 's/.*) //' "/proc/$pid/stat" | awk '{print $4}')"
 starttime="$(sed 's/.*) //' "/proc/$pid/stat" | awk '{print $20}')"
 boot_id="$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown)"
 cmd="$(printf '%s ' "$@" | sed 's/ *$//')"
@@ -34,6 +35,7 @@ tmp="${STATE_FILE}.tmp.$$"
   echo "# frontend-benchmark server state (atomic write)"
   echo "pid=$pid"
   echo "pgid=$pgrp"
+  echo "session=$session"
   echo "starttime=$starttime"
   echo "boot_id=$boot_id"
   echo "run_token=$RUN_TOKEN"

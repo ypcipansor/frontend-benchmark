@@ -31,7 +31,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
           cache-dependency-path: docs/package-lock.json
 
@@ -70,6 +70,10 @@ jobs:
       - name: Check Node.js version for the docs tooling
         working-directory: docs
         run: npm run check:node
+
+      - name: Workflow Node.js pins satisfy the engine requirements
+        working-directory: docs
+        run: npm run check:node-engines
 
       - name: Install docs tooling (npm ci)
         working-directory: docs

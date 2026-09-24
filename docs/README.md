@@ -4,11 +4,17 @@ Tools that capture the seven implementations, prove they render identically, and
 
 ## Setup
 
-Python 3 **and** **Node.js 20+** are required for this tooling. Playwright 1.63
-declares `engines.node >= 20` (see `docs/package-lock.json`), so Node 18 is not
-supported here - `docs/package.json` also declares the constraint in `engines`
-and `npm run check:node` enforces it. (This is a stricter minimum than the
-implementations themselves, which build on Node 18+.)
+Python 3 **and** **Node.js 22.22.3+** (or 24.15+, or 26+) are required for this
+tooling. The floor is set by the Angular 22 dev server that the capture pipeline
+starts: `@angular/cli` 22 declares
+`engines.node ^22.22.3 || ^24.15.0 || >=26.0.0`, and it refuses to run on an
+older runtime. Playwright 1.63's floor (`>= 20`) is lower, so Angular is the
+binding constraint. `docs/package.json` declares the requirement in `engines`
+and `npm run check:node` enforces the runtime, while `npm run check:node-engines`
+proves every Node.js version pinned in `.github/workflows/` satisfies it - a
+workflow pinning Node 20 would install Angular 22 and only fail when `npm start`
+rejects the runtime. (The React/Vue implementations build on Node 18+, and the
+Angular one additionally declares the same floor in its own `engines`.)
 
 `pixel-parity.py` and `optimize-images.py` import **NumPy** and **Pillow**,
 which are pinned to exact versions in `docs/requirements.txt` (a pinned install,
@@ -19,6 +25,8 @@ cd docs
 
 # Node tooling — Playwright (browser automation) + pngjs (screenshot checks).
 # docs/package-lock.json is committed, so npm ci reproduces the exact tree.
+npm run check:node          # this runtime meets the Node 22.22.3+ floor
+npm run check:node-engines  # every workflow Node.js pin meets it too
 npm ci
 npx playwright install chromium
 
@@ -29,12 +37,16 @@ python3 -m pip install -r requirements.txt
 `optimize-images.py` and `pixel-parity.py` derive every path from their own
 location, so they can be run from any working directory.
 
-Dev servers can be started and stopped as a set:
+From a shell already in `docs/` (as the commands above leave it), the dev
+servers can be started and stopped as a set:
 
 ```bash
-bash docs/scripts/start-servers.sh   # all seven on their fixed ports
-bash docs/scripts/stop-servers.sh    # stops exactly the processes it started
+bash scripts/start-servers.sh   # all seven on their fixed ports
+bash scripts/stop-servers.sh    # stops exactly the processes it started
 ```
+
+From the repository root, prefix each with `docs/`, e.g.
+`bash docs/scripts/start-servers.sh`.
 
 `start-servers.sh` refuses to start if any target port is already in use — a
 pre-existing (possibly stale) server can never be mistaken for the one it just
@@ -53,6 +65,7 @@ holding a port after a stop.
 
 | Step | Command | Output |
 |------|---------|--------|
+| 0. Node gate | `npm run check:node` / `npm run check:node-engines` | the runtime and every workflow Node.js pin satisfy the Node 22.22.3+ floor (Angular CLI 22) |
 | 1. Capture | `npm run capture` | `screenshots/<framework>/*.png` (1440×1024) + `screenshots/screenshot-report.json` |
 | 2. Verify | `npm run verify` | pass/fail per screenshot (blankness, geometry, completeness, report) |
 | 3. Parity | `npm run parity` | pass/fail per framework (DOM, geometry, state) — **live servers** |
@@ -182,14 +195,38 @@ failure: a request/response/console error whose source **URL** is a favicon
 mentions the word "favicon" is not enough, a bare `404 (Not Found)` with no
 favicon URL fails, any non-favicon 404 fails, and `pageerror` is never ignored.
 
+A framework captured with a non-favicon console/network error is treated as a
+**failed capture**, not a warning: `screenshot.js` deletes that framework's whole
+screenshot directory, records `{ failed: true, error: "N console/network
+error(s)", errors }` in `screenshot-report.json`, and exits non-zero. The images
+may render a broken state that pixel and parity comparison would accept, so they
+must not survive as if they were usable.
+
+## What `optimize-images.py` rejects
+
+Before writing a single JPEG, `optimize-images.py` reads
+`screenshots/screenshot-report.json` (or the report under `--src`) and refuses to
+run if:
+
+- the report is missing, unreadable or not a JSON object;
+- `__meta` is absent, has the wrong `schema`, is not a `fullSet`, or has no
+  non-empty `captureRunId`;
+- any framework entry is missing, `failed`, has a non-empty `error`, is not a
+  list of `errors`, has non-empty `errors`, or carries a `captureRunId` different
+  from `__meta.captureRunId`.
+
+The optimized copies feed the README and the montages, so publishing them from a
+failed or mixed-generation capture is a hard error rather than a warning.
+
 ## What `verify-screenshots.js` rejects
 
 - Blank or near-uniform images
 - Predominantly white captures with no rendered card
 - Captures whose card geometry is wrong
+- **Captures of the wrong size** — each report entry declares its viewport (`1440×1024`) and `deviceScaleFactor`, and every PNG must be exactly `viewport × dpr` pixels, so a screenshot from a different window can never pass by looking plausible
 - Captures with more colour variety than a real app screen would produce
 - **An incomplete set** — anything other than exactly seven framework directories with exactly five state files each, or an extra file standing in for a required state
-- **A stale or partial report** — entries missing a framework, marked failed, with `renderedItems != 100`, no visible empty state, non-empty `errors`, or `labelRects` lacking the badge/footer boxes for any state
+- **A stale or partial report** — entries missing a framework, marked failed, with `renderedItems != 100`, no visible empty state, non-empty `errors`, a viewport that is not `1440×1024`, or `labelRects` lacking the badge/footer boxes for any state
 - **A mixed capture generation** — full verification requires all seven entries to each carry their *own* non-empty `captureRunId` equal to `__meta.captureRunId` (the meta id is never used as a fallback for an entry that lost its own). A report stamped by an incremental `npm run capture:<fw>` fails, so "35 fresh" can never be claimed from a partial run. A report with no `__meta` freshness block fails too. `npm run verify --framework <name>` checks one framework alone, without claiming the full set, but still rejects that entry if its own id is missing, empty or not a string
 
 ## What `build-montage.js` rejects
@@ -200,4 +237,16 @@ the README unnoticed.
 
 ## Layout facts the tooling relies on
 
-In a 1440×1024 viewport the card occupies `x = 420 … 1020`, `y = 114 … 909` for populated states. `optimize-images.py` crops at `(404, 98, 1036, 926)` so the card's rounded corners and shadow survive, and every state uses the same crop box so montage rows line up.
+In a 1440×1024 viewport the card occupies `x = 420 … 1020`, `y = 114 … 909` for
+populated states. `optimize-images.py` always crops `x = 404 … 1036` and starts
+at `y = 98`, so the card's rounded corners and shadow survive and montage rows
+line up.
+
+The crop's bottom edge is **computed, not fixed**: the script detects the lowest
+row of near-background pixels inside the card columns in every one of the 35
+PNGs, takes the maximum, and adds a 17px margin (capped at the 1024px viewport).
+A single shared box is still used for all states — only its bottom is derived —
+so a card taller than the nominal ~796px can never be clipped, while montage rows
+stay aligned. The verifier's `populatedHeight` band (`700 … 900`) still rejects a
+card that diverges from the others; the crop simply follows the tallest agreed
+card instead of assuming one height.

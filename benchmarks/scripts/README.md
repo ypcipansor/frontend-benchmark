@@ -127,8 +127,10 @@ The shape of the result JSON is documented in [RESULTS_TEMPLATE.md](../../RESULT
 Performance numbers mean nothing if the frameworks are not rendering the same app. The parity tooling lives in [`docs/`](../../docs/) and is separate from the timing scripts:
 
 ```bash
-cd ../docs
-npm ci && npx playwright install chromium
+cd ../../docs        # from this file's directory; from the repo root: cd docs
+npm run check:node
+npm ci
+npx playwright install chromium
 python3 -m pip install -r requirements.txt
 npm run capture     # capture all five UI states (fails non-zero on any error)
 npm run verify      # reject blank, white, mis-sized or incomplete screenshots

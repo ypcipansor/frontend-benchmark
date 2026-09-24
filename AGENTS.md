@@ -24,14 +24,17 @@ Blade needs `composer install` first. The Rust dists reference the stylesheet as
 
 ## Verifying changes
 
-The `docs/` tooling needs **Node.js 20+** (Playwright 1.63 declares
-`engines.node >= 20`); `docs/package.json` has the same `engines` field and
-`npm run check:node` enforces it. The implementations themselves build on Node
-18+.
+The `docs/` tooling needs **Node.js 22.22.3+** (or 24.15+, or 26+): the Angular
+22 dev server the capture pipeline starts declares
+`engines.node ^22.22.3 || ^24.15.0 || >=26.0.0` and refuses an older runtime.
+`docs/package.json` carries that `engines` field, `npm run check:node` enforces
+the current runtime, and `npm run check:node-engines` proves every Node.js
+version pinned in `.github/workflows/` satisfies it. React and Vue build on
+Node 18+; Angular declares the same floor in its own `engines`.
 
 ```bash
 cd docs
-npm run check:node && npm ci && npx playwright install chromium   # exact Node tree from the lockfile
+npm run check:node-engines && npm run check:node && npm ci && npx playwright install chromium   # exact Node tree from the lockfile
 python3 -m pip install -r requirements.txt    # NumPy + Pillow
 
 bash scripts/start-servers.sh   # start all seven servers on their fixed ports

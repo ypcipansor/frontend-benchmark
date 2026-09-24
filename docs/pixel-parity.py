@@ -37,6 +37,11 @@ SHOTS = os.path.join(ROOT, 'screenshots')
 LABEL_KEYS = ('badge', 'footer')
 # Must match REPORT_SCHEMA in screenshot.js.
 EXPECTED_SCHEMA = 2
+# The capture viewport and the resulting pixel dimensions. The images come from
+# screenshot.js at deviceScaleFactor 1; a reference at any other size means the
+# report and the images disagree, so the comparison would be meaningless.
+VIEWPORT_W = 1440
+VIEWPORT_H = 1024
 
 
 class ReportError(Exception):
@@ -74,8 +79,28 @@ def check_freshness(report):
                 f'(artefacts from different capture runs are mixed)')
 
 
+def entry_dpr(entry):
+    """The deviceScaleFactor recorded for a report entry (default 1)."""
+    viewport = entry.get('viewport') if isinstance(entry, dict) else None
+    if not isinstance(viewport, dict):
+        return None
+    dpr = viewport.get('deviceScaleFactor', 1)
+    if not isinstance(dpr, (int, float)) or isinstance(dpr, bool) or dpr <= 0:
+        return None
+    return float(dpr)
+
+
+def report_dpr(entries, fw):
+    """The DPR for `fw` from the entries map built by load_label_rects."""
+    return entries['__dpr'].get(fw, 1)
+
+
 def load_label_rects(path):
-    """Return {framework: {state: {badge, footer}}}, failing loudly on gaps."""
+    """Return {framework: {state: {badge, footer}}}, failing loudly on gaps.
+
+    The returned map carries an extra ``__dpr`` entry with per-framework DPRs so
+    the caller can assert the reference image really is the declared viewport.
+    """
     if not os.path.exists(path):
         raise ReportError(f'screenshot report not found: {path}')
     try:
@@ -88,13 +113,27 @@ def load_label_rects(path):
 
     check_freshness(report)
 
-    rects = {}
+    rects = {'__dpr': {}}
     for fw in FRAMEWORKS:
         entry = report.get(fw)
         if not isinstance(entry, dict):
             raise ReportError(f'report has no entry for framework "{fw}"')
         if entry.get('failed') or 'error' in entry:
             raise ReportError(f'report marks framework "{fw}" as failed: {entry.get("error")}')
+        viewport = entry.get('viewport')
+        if not isinstance(viewport, dict):
+            raise ReportError(f'report entry for "{fw}" has no viewport')
+        if viewport.get('width') != VIEWPORT_W or viewport.get('height') != VIEWPORT_H:
+            raise ReportError(
+                f'report entry for "{fw}" viewport '
+                f'{viewport.get("width")}x{viewport.get("height")} != expected '
+                f'{VIEWPORT_W}x{VIEWPORT_H}')
+        dpr = entry_dpr(entry)
+        if dpr is None:
+            raise ReportError(
+                f'report entry for "{fw}" has an invalid deviceScaleFactor '
+                f'({viewport.get("deviceScaleFactor")!r})')
+        rects['__dpr'][fw] = dpr
         per_state = entry.get('labelRects')
         if not isinstance(per_state, dict):
             raise ReportError(f'report entry for "{fw}" has no labelRects')
@@ -208,6 +247,16 @@ def main():
             failures += 1
             continue
         ref = np.asarray(Image.open(ref_path).convert('RGB'))
+        # The reference must be the capture viewport at the entry's DPR. A
+        # different size means the report's masks and the image disagree, so the
+        # comparison could silently pass on meaningless pixels.
+        dpr = report_dpr(label_rects, REFERENCE)
+        exp_w, exp_h = round(VIEWPORT_W * dpr), round(VIEWPORT_H * dpr)
+        if ref.shape[1] != exp_w or ref.shape[0] != exp_h:
+            print(f'  FAIL reference {REFERENCE}/{state}.png size '
+                  f'{ref.shape[1]}x{ref.shape[0]} != expected {exp_w}x{exp_h}')
+            failures += 1
+            continue
         print(f'\n=== state: {state} ===')
         for fw in FRAMEWORKS:
             path = os.path.join(shots, fw, f'{state}.png')

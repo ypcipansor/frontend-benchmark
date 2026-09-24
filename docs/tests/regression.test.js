@@ -129,6 +129,28 @@ async function waitForPort(port, timeoutMs = 15000) {
   throw new Error(`fixture server on ${port} never became ready`);
 }
 
+/** True when something accepts a TCP connection on the port (no HTTP needed). */
+function tcpOpen(port) {
+  return new Promise((resolve) => {
+    const sock = require('net').connect({ host: '127.0.0.1', port }, () => {
+      sock.destroy();
+      resolve(true);
+    });
+    sock.on('error', () => { sock.destroy(); resolve(false); });
+    sock.setTimeout(1000, () => { sock.destroy(); resolve(false); });
+  });
+}
+
+/** Wait until a TCP connection to the port is accepted. */
+async function waitForTcp(port, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await tcpOpen(port)) return;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`nothing is listening on ${port}`);
+}
+
 /**
  * Start the fixture server as a separate process. It must not run in this
  * process: the tests drive the production scripts with spawnSync, which blocks
@@ -197,9 +219,9 @@ const FOOTER_RECT = [450, 880, 540, 30];
  * a coloured marker inside `badgeRect` that differs per framework — exactly the
  * kind of framework-name difference the pixel checker is meant to mask.
  */
-function writeShot(file, { cardHeight, markerColor }) {
-  const png = new PNG({ width: VIEWPORT_W, height: VIEWPORT_H });
-  for (let y = 0; y < VIEWPORT_H; y++) {
+function writeShot(file, { cardHeight, markerColor, height = VIEWPORT_H, bottomBar = false }) {
+  const png = new PNG({ width: VIEWPORT_W, height });
+  for (let y = 0; y < height; y++) {
     for (let x = 0; x < VIEWPORT_W; x++) {
       const i = (y * VIEWPORT_W + x) * 4;
       const inCard =
@@ -232,6 +254,17 @@ function writeShot(file, { cardHeight, markerColor }) {
       }
     }
   }
+  if (bottomBar) {
+    // A dark bar across the last rows of the card, so a crop that clips the
+    // card's bottom edge can be detected by looking for it in the JPEG.
+    const y0 = Math.max(0, CARD_TOP + cardHeight - 4);
+    for (let y = y0; y < Math.min(height, CARD_TOP + cardHeight); y++) {
+      for (let x = CARD_LEFT; x < CARD_LEFT + CARD_WIDTH; x++) {
+        const i = (y * VIEWPORT_W + x) * 4;
+        png.data[i] = 20; png.data[i + 1] = 20; png.data[i + 2] = 20;
+      }
+    }
+  }
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, PNG.sync.write(png));
 }
@@ -240,7 +273,11 @@ function writeShot(file, { cardHeight, markerColor }) {
  * Build a complete, self-contained capture set (7 frameworks x 5 states) plus
  * screenshot-report.json, without touching the committed screenshots.
  */
-function writeShots(dir, { omitRects = false, frameworks = null, mutate = null, runId = 'fixture-run-a', meta = true } = {}) {
+function writeShots(dir, {
+  omitRects = false, frameworks = null, mutate = null, runId = 'fixture-run-a', meta = true,
+  viewport = null, imageHeight = VIEWPORT_H, populatedCardHeight = POPULATED_HEIGHT,
+  bottomBar = false, reportMutate = null,
+} = {}) {
   const FW = frameworks || FRAMEWORKS;
   const report = {};
   FW.forEach((fw, idx) => {
@@ -256,19 +293,22 @@ function writeShots(dir, { omitRects = false, frameworks = null, mutate = null, 
       screenshots: [],
       captureRunId: runId,
       schema: 2,
-      viewport: { width: VIEWPORT_W, height: VIEWPORT_H, deviceScaleFactor: 1 },
+      viewport: viewport || { width: VIEWPORT_W, height: VIEWPORT_H, deviceScaleFactor: 1 },
     };
     for (const s of STATES) {
       const file = path.join(dir, fw, `${s}.png`);
       writeShot(file, {
-        cardHeight: s === 'empty-state' ? EMPTY_HEIGHT : POPULATED_HEIGHT,
+        cardHeight: s === 'empty-state' ? EMPTY_HEIGHT : populatedCardHeight,
         markerColor,
+        height: imageHeight,
+        bottomBar,
       });
       report[fw].screenshots.push(`${fw}/${s}.png`);
       report[fw].labelRects[s] = omitRects
         ? {}
         : { badge: BADGE_RECT.slice(), footer: FOOTER_RECT.slice() };
     }
+    if (reportMutate) reportMutate(fw, report[fw]);
   });
   if (meta) {
     report.__meta = { schema: 2, fullSet: true, captureRunId: runId, capturedAt: '2024-01-01T00:00:00.000Z' };
@@ -298,6 +338,18 @@ function pokePixel(file, x, y, channel, delta) {
 (async () => {
   console.log('Regression tests\n');
   fs.mkdirSync(path.join(DOCS, 'logs'), { recursive: true });
+
+  // Self-heal after a crash (SIGKILL, sandbox restart) during the nested
+  // no-captures run below: that run renames docs/screenshots aside and normally
+  // restores it in a finally block, but an uncatchable kill can leave the
+  // checkout missing its production captures. Restore them on the next start.
+  {
+    const HIDDEN = path.join(DOCS, '.screenshots-hidden');
+    if (fs.existsSync(HIDDEN) && !fs.existsSync(SHOTS)) {
+      fs.renameSync(HIDDEN, SHOTS);
+      console.log('  (recovered docs/screenshots from an interrupted run)\n');
+    }
+  }
 
   // --- 1 + 3: capture of a working fixture, then a failing one --------------
   console.log('capture behaviour');
@@ -425,6 +477,103 @@ function pokePixel(file, x, y, channel, delta) {
     assert(res.status !== 0, 'expected non-zero exit');
     assert(/missing/i.test(res.stderr), `unclear error: ${res.stderr}`);
   });
+  {
+    // A capture set with a broken asset records a failed entry (and no PNGs).
+    // optimize-images.py must refuse to publish JPEGs from such a report, even
+    // when the PNGs happen to exist.
+    const outDir = tmpDir('optimize-errors-src');
+    writeShots(outDir, {
+      reportMutate: (fw, entry) => {
+        if (fw === 'vue') { entry.errors = ['console: boom']; }
+      },
+    });
+    await test('optimize-images.py refuses a report that records console errors', () => {
+      const dstDir = tmpDir('optimize-errors-dst');
+      const res = run('python3', [path.join(DOCS, 'optimize-images.py'), '--src', outDir, '--dst', dstDir], { cwd: os.tmpdir() });
+      assert(res.status !== 0, `expected non-zero exit:\n${res.stdout}${res.stderr}`);
+      assert(/console\/network error|errors/i.test(res.stdout + res.stderr), `unclear error: ${res.stderr}`);
+      assert(!fs.existsSync(path.join(dstDir, 'vue')), 'JPEGs were written despite the errors');
+    });
+    await test('optimize-images.py refuses a report whose entry is marked failed', () => {
+      const dir = tmpDir('optimize-failed-src');
+      writeShots(dir, {
+        reportMutate: (fw, entry) => {
+          if (fw === 'vue') { entry.failed = true; entry.error = '3 console/network error(s)'; }
+        },
+      });
+      const dstDir = tmpDir('optimize-failed-dst');
+      const res = run('python3', [path.join(DOCS, 'optimize-images.py'), '--src', dir, '--dst', dstDir], { cwd: os.tmpdir() });
+      assert(res.status !== 0, `expected non-zero exit:\n${res.stdout}${res.stderr}`);
+      assert(/failed/i.test(res.stdout + res.stderr), `unclear error: ${res.stderr}`);
+    });
+    await test('optimize-images.py refuses a report that is not a full set', () => {
+      const dir = tmpDir('optimize-partial-src');
+      const report = writeShots(dir);
+      report.__meta.fullSet = false;
+      fs.writeFileSync(path.join(dir, 'screenshot-report.json'), JSON.stringify(report, null, 2));
+      const dstDir = tmpDir('optimize-partial-dst');
+      const res = run('python3', [path.join(DOCS, 'optimize-images.py'), '--src', dir, '--dst', dstDir], { cwd: os.tmpdir() });
+      assert(res.status !== 0, `expected non-zero exit:\n${res.stdout}${res.stderr}`);
+      assert(/full capture|fullSet/i.test(res.stdout + res.stderr), `unclear error: ${res.stderr}`);
+    });
+    await test('optimize-images.py refuses a mixed capture generation', () => {
+      const dir = tmpDir('optimize-mixed-src');
+      const report = writeShots(dir, { runId: 'gen-1' });
+      report.vue.captureRunId = 'gen-2';
+      fs.writeFileSync(path.join(dir, 'screenshot-report.json'), JSON.stringify(report, null, 2));
+      const dstDir = tmpDir('optimize-mixed-dst');
+      const res = run('python3', [path.join(DOCS, 'optimize-images.py'), '--src', dir, '--dst', dstDir], { cwd: os.tmpdir() });
+      assert(res.status !== 0, `expected non-zero exit:\n${res.stdout}${res.stderr}`);
+      assert(/captureRunId|mixed/i.test(res.stdout + res.stderr), `unclear error: ${res.stderr}`);
+    });
+    await test('optimize-images.py refuses a missing report', () => {
+      const dir = tmpDir('optimize-noreport-src');
+      writeShots(dir);
+      fs.rmSync(path.join(dir, 'screenshot-report.json'));
+      const dstDir = tmpDir('optimize-noreport-dst');
+      const res = run('python3', [path.join(DOCS, 'optimize-images.py'), '--src', dir, '--dst', dstDir], { cwd: os.tmpdir() });
+      assert(res.status !== 0, `expected non-zero exit:\n${res.stdout}${res.stderr}`);
+      assert(/report not found/i.test(res.stdout + res.stderr), `unclear error: ${res.stderr}`);
+    });
+  }
+  {
+    // Finding 4: a card taller than the nominal height must not be clipped. The
+    // crop bottom is computed from the tallest card across all PNGs, so the dark
+    // bar drawn at the card's bottom edge must still be present in the JPEG.
+    const CARD_880 = 880;
+    const outDir = tmpDir('optimize-tall-src');
+    const dstDir = tmpDir('optimize-tall-dst');
+    writeShots(outDir, { populatedCardHeight: CARD_880, bottomBar: true });
+    const res = run('python3', [path.join(DOCS, 'optimize-images.py'), '--src', outDir, '--dst', dstDir], { cwd: os.tmpdir() });
+    await test('optimize-images.py succeeds for a set with an 880px card', () => {
+      assert(res.status === 0, `exit ${res.status}:\n${res.stdout}${res.stderr}`);
+    });
+    const jpeg = path.join(dstDir, 'react', 'all.jpg');
+    await test('the optimized JPEG still contains the bottom row of a tall card', () => {
+      assert(fs.existsSync(jpeg), `no optimized JPEG written: ${jpeg}`);
+      // The JPEG is decoded by Pillow (already a dependency of the optimizer) and
+      // scanned for the dark bar drawn across the card's bottom edge. The bar is
+      // far from the crop's left/right padding, so it can only be missing if the
+      // crop clipped the card.
+      const script = [
+        'import sys',
+        'from PIL import Image',
+        'im = Image.open(sys.argv[1]).convert("RGB")',
+        'w, h = im.size',
+        'px = im.load()',
+        'best = 0',
+        'for y in range(h):',
+        '    dark = sum(1 for x in range(w) if px[x, y][0] < 80 and px[x, y][1] < 80 and px[x, y][2] < 80)',
+        '    best = max(best, dark)',
+        'print(best)',
+      ].join('\n');
+      const res = run('python3', ['-c', script, jpeg], { timeout: 30000 });
+      assert(res.status === 0, `could not inspect the JPEG: ${res.stderr}`);
+      const dark = Number((res.stdout || '').trim());
+      assert(Number.isFinite(dark) && dark > 20,
+        `the card's bottom row was clipped from the JPEG (widest dark row = ${res.stdout.trim()})`);
+    });
+  }
 
   // --- 5: verifier completeness -------------------------------------------
   console.log('\nverifier completeness');
@@ -483,6 +632,56 @@ function pokePixel(file, x, y, channel, delta) {
       const res = run('node', [path.join(DOCS, 'verify-screenshots.js'), '--dir', dir]);
       assert(res.status !== 0, 'expected non-zero exit');
       assert(/height disagrees/.test(res.stdout), `not reported: ${res.stdout}`);
+    });
+  }
+  {
+    // Finding 3: the declared viewport pins the required pixel size. A PNG whose
+    // height does not match `viewport.height * dpr` must be rejected, even if it
+    // is otherwise a plausible screenshot.
+    const dir = tmpDir('verify-size');
+    writeShots(dir, {
+      imageHeight: 1200,
+      viewport: { width: VIEWPORT_W, height: 1200, deviceScaleFactor: 1 },
+    });
+    // Make the report declare the wrong (1200) viewport height, while the images
+    // are written 1200px tall to match. This is an entirely self-consistent set
+    // that is nonetheless not the 1440x1024 capture contract.
+    await test('verify rejects a viewport that is not 1440x1024', () => {
+      const res = run('node', [path.join(DOCS, 'verify-screenshots.js'), '--dir', dir]);
+      assert(res.status !== 0, `expected non-zero exit:\n${res.stdout}`);
+      assert(/1440x1024|viewport/i.test(res.stdout), `unclear failure: ${res.stdout}`);
+    });
+    await test('pixel-parity rejects a non-1440x1024 reference', () => {
+      const res = run('python3', [path.join(DOCS, 'pixel-parity.py'), '--shots', dir]);
+      assert(res.status !== 0, `expected non-zero exit:\n${res.stdout}`);
+      assert(/1440x1024|viewport/i.test(res.stdout), `unclear failure: ${res.stdout}`);
+    });
+  }
+  {
+    // The complementary case: the report declares 1440x1024 but a PNG is the
+    // wrong size (a stale image from another viewport). The size check must fail
+    // with the explicit "size WxH != expected" message.
+    const dir = tmpDir('verify-size-mismatch');
+    writeShots(dir);
+    writeShot(path.join(dir, 'vue', 'all.png'), { cardHeight: POPULATED_HEIGHT, markerColor: [80, 130, 185], height: 1200 });
+    await test('verify rejects a PNG whose size does not match the declared viewport', () => {
+      const res = run('node', [path.join(DOCS, 'verify-screenshots.js'), '--dir', dir]);
+      assert(res.status !== 0, `expected non-zero exit:\n${res.stdout}`);
+      assert(/size 1440x1200 != expected 1440x1024/.test(res.stdout), `not reported: ${res.stdout}`);
+    });
+  }
+  {
+    // DPR is part of the size contract: a report declaring deviceScaleFactor 2
+    // requires 2880x2048 images, so a 1440x1024 set must be rejected rather than
+    // silently accepted because it matches the CSS viewport.
+    const dir = tmpDir('verify-dpr-mismatch');
+    writeShots(dir, {
+      viewport: { width: VIEWPORT_W, height: VIEWPORT_H, deviceScaleFactor: 2 },
+    });
+    await test('verify rejects images that do not match the declared DPR', () => {
+      const res = run('node', [path.join(DOCS, 'verify-screenshots.js'), '--dir', dir]);
+      assert(res.status !== 0, `expected non-zero exit:\n${res.stdout}`);
+      assert(/size 1440x1024 != expected 2880x2048/.test(res.stdout), `not reported: ${res.stdout}`);
     });
   }
 
@@ -947,10 +1146,30 @@ function pokePixel(file, x, y, channel, delta) {
   {
     server = await startFixture({ brokenAsset: true });
     const dir = tmpDir('console-bad');
+    // Seed a stale shot set so the "capture removes it" behaviour is proven, not
+    // just assumed: a framework captured with a console error must leave no PNG
+    // behind, and must be recorded as failed in the report.
+    fs.mkdirSync(path.join(dir, 'fixture'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'fixture', 'all.png'), 'STALE');
+    fs.writeFileSync(path.join(dir, 'fixture', 'stale-extra.png'), 'STALE');
     const res = run('node', [path.join(DOCS, 'screenshot.js'), '--framework', `fixture:${FIXTURE_PORT}`, '--out', dir]);
     await test('a non-favicon 404 fails the capture', () => {
       assert(res.status !== 0, `expected non-zero exit, got ${res.status}`);
       assert(/definitely-missing-asset/.test(res.stdout + res.stderr), 'the failing URL was not reported');
+    });
+    await test('a console-error capture deletes the framework screenshots folder', () => {
+      const leftover = fs.existsSync(path.join(dir, 'fixture'))
+        ? fs.readdirSync(path.join(dir, 'fixture'))
+        : [];
+      assert(leftover.length === 0, `PNGs survived a console-error capture: ${leftover.join(', ')}`);
+    });
+    await test('a console-error capture records a failed entry with its errors', () => {
+      const entry = readReport(dir, 'fixture');
+      assert(entry, 'no report entry for fixture');
+      assert(entry.failed === true, `entry not marked failed: ${JSON.stringify(entry)}`);
+      assert(/console\/network error/.test(entry.error || ''), `unclear error: ${entry.error}`);
+      assert(Array.isArray(entry.errors) && entry.errors.length > 0,
+        `the errors were not carried into the report: ${JSON.stringify(entry.errors)}`);
     });
     await stopFixture(server);
   }
@@ -1153,6 +1372,14 @@ function pokePixel(file, x, y, channel, delta) {
     return Object.fromEntries(
       fs.readFileSync(file, 'utf8').split('\n').filter(Boolean)
         .filter((l) => !l.startsWith('#')).map((l) => l.split(/=(.*)/s).slice(0, 2))
+    );
+  }
+
+  /** Write a state file with exactly the given fields (no defaults). */
+  function writeStateFields(logsDir, name, fields) {
+    fs.writeFileSync(
+      path.join(logsDir, `${name}.state`),
+      Object.entries(fields).map(([k, v]) => `${k}=${v}`).join('\n') + '\n'
     );
   }
 
@@ -1551,6 +1778,162 @@ wait "$child"
     }
   }
 
+  // --- orphan child: leader dead, group still alive -------------------------
+  console.log('\nstop-servers.sh orphan-child recovery');
+  {
+    // The severe case: a wrapper exits while a child (vite/ng) ignores SIGTERM
+    // and keeps the port. `verify_state` used to fail ("process no longer
+    // exists"), quarantine the record and leave the child running. The
+    // "leader dead, group alive" path must signal the group after proving every
+    // live member belongs to the session the run created.
+    const logsDir = tmpDir('orphan-logs');
+    const port = 4191;
+    const state = path.join(logsDir, 'fixture.state');
+    const child = spawn(
+      'setsid',
+      ['bash', path.join(DOCS, 'scripts', 'lib', 'serve.sh'), state, 'tok', 'bash', '-c', `
+        # Child: ignores SIGTERM, holds the port.
+        python3 -c '
+import signal, socket
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+s = socket.socket()
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(("127.0.0.1", ${port}))
+s.listen(5)
+while True:
+    c, _ = s.accept()
+    c.close()
+' &
+        child=$!
+        # Leader: exits on SIGTERM (default), but waits so it stays alive until
+        # the test kills it explicitly.
+        trap 'exit 0' TERM
+        wait "$child"
+      `],
+      { stdio: 'ignore' }
+    );
+    try {
+      await waitForTcp(port);
+      // Wait for serve.sh to write the state that records the leader's identity.
+      const deadline = Date.now() + 5000;
+      while (!fs.existsSync(state) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+      const fields = parseState(state);
+      assert(fields.pid === String(child.pid), `state recorded pid ${fields.pid}, expected ${child.pid}`);
+
+      // Kill only the leader. The child stays in the (now leaderless) group and
+      // keeps the port: exactly the orphan case. SIGKILL leaves no zombie, so
+      // /proc/<pid> is gone immediately (a plain exit would linger as a zombie
+      // while this test process reaps it, masking the orphan path).
+      process.kill(child.pid, 'SIGKILL');
+      await new Promise((r) => setTimeout(r, 500));
+
+      await test('the orphan case is genuine: the port is held after the leader dies', async () => {
+        const up = await tcpOpen(port);
+        assert(up, 'precondition failed: the port was not held by the orphan child');
+        assert(!fs.existsSync(`/proc/${child.pid}`), 'precondition failed: the leader is still present');
+      });
+
+      const res = run('bash', [path.join(DOCS, 'scripts', 'stop-servers.sh')], {
+        env: { FB_LOGS_DIR: logsDir },
+        timeout: 30000,
+      });
+      await test('stop-servers.sh stops a group whose leader is gone', () => {
+        assert(res.status === 0, `exit ${res.status}: ${res.stdout}${res.stderr}`);
+        assert(/stopping fixture/.test(res.stdout), `the orphan group was not stopped: ${res.stdout}${res.stderr}`);
+        assert(!/refusing to signal fixture/.test(res.stdout + res.stderr),
+          `the orphan group was wrongly refused: ${res.stdout}${res.stderr}`);
+      });
+      await test('the orphan child is gone and the port is free', async () => {
+        const dl = Date.now() + 8000;
+        let up = true;
+        while (Date.now() < dl && up) {
+          up = await tcpOpen(port);
+          if (up) await new Promise((r) => setTimeout(r, 200));
+        }
+        assert(!up, `port ${port} is still held: the orphan child survived`);
+      });
+      await test('no live member of the orphaned group survives', () => {
+        const live = liveGroupMembers(child.pid);
+        assert(live.length === 0, `live process(es) still in the group: ${live.join(', ')}`);
+      });
+      await test('the spent state file is removed after the orphan group is reaped', () => {
+        assert(!fs.existsSync(state), 'the state file survived the stop');
+      });
+    } finally {
+      try { process.kill(-child.pid, 'SIGKILL'); } catch { /* already gone */ }
+      try { child.kill('SIGKILL'); } catch { /* already gone */ }
+      run('bash', [path.join(DOCS, 'scripts', 'stop-servers.sh')], { env: { FB_LOGS_DIR: logsDir }, timeout: 30000 });
+    }
+  }
+  {
+    // A record whose leader is gone *and* whose group has no live member is a
+    // spent record, not a failure: it must be removed without quarantining (a
+    // warm-up run that already exited is normal).
+    const logsDir = tmpDir('spent-logs');
+    const pidMax = Number(fs.readFileSync('/proc/sys/kernel/pid_max', 'utf8').trim());
+    const deadPid = pidMax + 23; // can never exist
+    writeStateFields(logsDir, 'fixture', {
+      pid: String(deadPid), pgid: String(deadPid), starttime: '1',
+      boot_id: bootId(), run_token: 'spent', cmd: 'gone',
+    });
+    const res = run('bash', [path.join(DOCS, 'scripts', 'stop-servers.sh')], {
+      env: { FB_LOGS_DIR: logsDir },
+      timeout: 15000,
+    });
+    await test('a spent record (dead leader, empty group) is removed, not quarantined', () => {
+      assert(res.status === 0, `exit ${res.status}: ${res.stdout}${res.stderr}`);
+      assert(!/refusing to signal fixture/.test(res.stdout + res.stderr),
+        `a spent record was treated as unverifiable: ${res.stdout}${res.stderr}`);
+      const leftovers = fs.readdirSync(logsDir);
+      assert(!leftovers.includes('fixture.state'), `the spent state file was left behind: ${leftovers.join(', ')}`);
+      assert(!leftovers.some((f) => f.startsWith('stale-')), `a spent record was quarantined: ${leftovers.join(', ')}`);
+    });
+  }
+  {
+    // The dangerous inverse: the leader is gone and a live process sits in the
+    // *recorded group*, but that process is not part of the session the run
+    // created (its session id differs from the recorded pgid). This models a
+    // recycled/reused group id. The group must NOT be signalled.
+    const logsDir = tmpDir('foreign-group-logs');
+    const pidMax = Number(fs.readFileSync('/proc/sys/kernel/pid_max', 'utf8').trim());
+    const deadPid = pidMax + 31;
+    // A process in its own group (setpgid(0,0)) but still in the parent's
+    // session, so session id != its pid/pgid. It is its own group, so even a
+    // mistaken signal cannot reach this test process.
+    const foreign = spawn('python3', ['-c', `
+import os, time
+os.setpgid(0, 0)   # own process group, session unchanged (session != pgid)
+time.sleep(30)
+`], { stdio: 'ignore' });
+    try {
+      await new Promise((r) => setTimeout(r, 500));
+      const id = procIdentity(foreign.pid);
+      assert(Number(id.pgrp) === foreign.pid, `precondition: expected pgid ${foreign.pid}, got ${id.pgrp}`);
+      writeStateFields(logsDir, 'fixture', {
+        pid: String(deadPid), pgid: String(foreign.pid), starttime: '1',
+        boot_id: bootId(), run_token: 'foreign', cmd: 'gone',
+      });
+      const res = run('bash', [path.join(DOCS, 'scripts', 'stop-servers.sh')], {
+        env: { FB_LOGS_DIR: logsDir },
+        timeout: 15000,
+      });
+      await test('a dead leader whose group is not provably ours is quarantined, never signalled', () => {
+        assert(res.status === 0, `exit ${res.status}: ${res.stdout}${res.stderr}`);
+        assert(/refusing to signal fixture/.test(res.stdout + res.stderr),
+          `a group outside the recorded session was not refused: ${res.stdout}${res.stderr}`);
+        const leftovers = fs.readdirSync(logsDir);
+        assert(leftovers.some((f) => f.startsWith('stale-')), `not quarantined: ${leftovers.join(', ')}`);
+      });
+      await test('the foreign group member is still alive (never signalled)', () => {
+        let alive = true;
+        try { process.kill(foreign.pid, 0); } catch { alive = false; }
+        assert(alive, 'a group outside the recorded session was signalled');
+      });
+    } finally {
+      try { foreign.kill('SIGKILL'); } catch { /* already gone */ }
+    }
+  }
+
   // --- serve.sh records an unraced identity from inside the new session -----
   {
     // start-servers.sh launches the server through serve.sh under setsid and
@@ -1627,6 +2010,87 @@ wait "$child"
       fs.writeFileSync(doc, '### Results\n\n```bash\ncd benchmarks/scripts\nnpm run update-readme\n```\n');
       const res = run('node', [checker, '--doc', doc], { timeout: 30000 });
       assert(res.status === 0, `a contextualised command was rejected:\n${res.stdout}${res.stderr}`);
+    });
+  }
+
+  // --- workflow Node.js pins satisfy the declared engine floors -------------
+  console.log('\nworkflow Node.js pins (Angular CLI 22)');
+  {
+    const checker = path.join(DOCS, 'check-node-engines.js');
+    await test('every workflow Node.js pin satisfies the declared engine floors', () => {
+      const res = run('node', [checker], { timeout: 30000 });
+      assert(res.status === 0, `checker failed:\n${res.stdout}${res.stderr}`);
+      assert(/NODE ENGINES OK/.test(res.stdout), `no success line: ${res.stdout}`);
+    });
+    await test('the visual-parity workflow pins a Node.js the Angular CLI accepts', () => {
+      const wf = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'visual-parity.yml'), 'utf8');
+      const m = /node-version:\s*['"]?([^'"\s#]+)/.exec(wf);
+      assert(m, 'the visual-parity workflow has no node-version pin');
+      const major = Number(m[1].split('.')[0]);
+      // Angular CLI 22 requires ^22.22.3 || ^24.15.0 || >=26.0.0, so Node 20 (the
+      // reported bug) and Node 22.x below 22.22.3 must never be pinned.
+      assert(major >= 24 || (major === 22 && m[1] !== '22'),
+        `the visual-parity workflow pins Node ${m[1]}, which the Angular CLI rejects`);
+    });
+    await test('the Angular implementation declares a Node.js engine matching its CLI', () => {
+      const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'implementations', 'angular', 'package.json'), 'utf8'));
+      assert(pkg.engines && typeof pkg.engines.node === 'string' && pkg.engines.node.trim(),
+        'implementations/angular/package.json declares no engines.node');
+      const cliMajor = /(\d+)/.exec(String(pkg.devDependencies['@angular/cli']))[1];
+      // The declared floor must name the same major the CLI dependency does (a
+      // floor of ">=20" would silently let a Node 20 runner install Angular 22
+      // and fail only when the dev server is started).
+      assert(/22\.22\.3/.test(pkg.engines.node),
+        `engines.node ${JSON.stringify(pkg.engines.node)} does not name the Angular 22 CLI floor`);
+      assert(pkg.engines.node.includes(String(cliMajor)),
+        `engines.node ${JSON.stringify(pkg.engines.node)} does not mention Angular ${cliMajor}`);
+    });
+    await test('the checker rejects a workflow pin below the Angular floor (Node 20)', () => {
+      const dir = tmpDir('node-engines-bad');
+      fs.mkdirSync(path.join(dir, '.github', 'workflows'), { recursive: true });
+      fs.mkdirSync(path.join(dir, 'docs'), { recursive: true });
+      fs.mkdirSync(path.join(dir, 'implementations', 'angular'), { recursive: true });
+      fs.copyFileSync(path.join(DOCS, 'package.json'), path.join(dir, 'docs', 'package.json'));
+      fs.copyFileSync(
+        path.join(ROOT, 'implementations', 'angular', 'package.json'),
+        path.join(dir, 'implementations', 'angular', 'package.json')
+      );
+      fs.writeFileSync(
+        path.join(dir, '.github', 'workflows', 'x.yml'),
+        'name: x\njobs:\n  a:\n    steps:\n      - uses: actions/setup-node@v4\n        with:\n          node-version: "20"\n'
+      );
+      const res = run('node', [checker, '--root', dir], { timeout: 30000 });
+      assert(res.status !== 0, `a Node 20 pin was accepted:\n${res.stdout}${res.stderr}`);
+      assert(/Node 20/.test(res.stdout + res.stderr), `unclear failure: ${res.stdout}${res.stderr}`);
+    });
+    await test('the checker accepts a workflow that pins Node 24', () => {
+      const dir = tmpDir('node-engines-ok');
+      fs.mkdirSync(path.join(dir, '.github', 'workflows'), { recursive: true });
+      fs.mkdirSync(path.join(dir, 'docs'), { recursive: true });
+      fs.mkdirSync(path.join(dir, 'implementations', 'angular'), { recursive: true });
+      fs.copyFileSync(path.join(DOCS, 'package.json'), path.join(dir, 'docs', 'package.json'));
+      fs.copyFileSync(
+        path.join(ROOT, 'implementations', 'angular', 'package.json'),
+        path.join(dir, 'implementations', 'angular', 'package.json')
+      );
+      fs.writeFileSync(
+        path.join(dir, '.github', 'workflows', 'x.yml'),
+        'name: x\njobs:\n  a:\n    steps:\n      - uses: actions/setup-node@v4\n        with:\n          node-version: "24"\n'
+      );
+      const res = run('node', [checker, '--root', dir], { timeout: 30000 });
+      assert(res.status === 0, `a Node 24 pin was rejected:\n${res.stdout}${res.stderr}`);
+    });
+    await test('check-node-version.js fails when the engine floor is above this runtime', () => {
+      // Prove the floor is enforced from docs/package.json, not hardcoded: a
+      // synthetic package demanding a future Node must be rejected here.
+      const dir = tmpDir('node-version-future');
+      fs.mkdirSync(path.join(dir, 'docs'), { recursive: true });
+      const pkg = JSON.parse(fs.readFileSync(path.join(DOCS, 'package.json'), 'utf8'));
+      pkg.engines = { node: '>=99.0.0' };
+      fs.writeFileSync(path.join(dir, 'docs', 'package.json'), JSON.stringify(pkg, null, 2));
+      const res = run('node', [path.join(DOCS, 'check-node-version.js'), '--root', dir], { timeout: 30000 });
+      assert(res.status !== 0, `a floor above this runtime was accepted:\n${res.stdout}${res.stderr}`);
+      assert(/>= 99\.0\.0/.test(res.stdout + res.stderr), `unclear failure: ${res.stdout}${res.stderr}`);
     });
   }
 
