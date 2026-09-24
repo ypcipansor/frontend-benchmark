@@ -6,13 +6,23 @@
  */
 
 const autocannon = require('autocannon');
-const { execSync } = require('child_process');
+const { execSync, exec } = require('child_process');
+const { promisify } = require('util');
+const execAsync = promisify(exec);
 const fs = require('fs');
 const path = require('path');
 
 const ROOT_DIR = path.join(__dirname, '../..');
 const RESULTS_DIR = path.join(__dirname, '../results');
 if (!fs.existsSync(RESULTS_DIR)) fs.mkdirSync(RESULTS_DIR, { recursive: true });
+const { stampRun } = require('./provenance');
+
+// A standalone stress run is its own run: it stamps fresh provenance and its
+// results carry this id. When the comprehensive benchmark in the same CI run
+// attaches those results, both share `GITHUB_RUN_ID`, so the environment still
+// matches; a manual standalone run gets a distinct id and is treated as a
+// different environment.
+const RUN_ID = stampRun(RESULTS_DIR, 'stress');
 
 const frameworks = [
   { name: 'react', port: 3001, service: 'react', url: 'http://localhost:3001' },
@@ -85,20 +95,66 @@ function runAutocannon(url, connections, durationSeconds) {
   });
 }
 
-function sampleContainerStats(containerName, durationSeconds, intervalMs = DEFAULT_STATS_INTERVAL_MS) {
+function sampleContainerStats(containerName, durationSeconds, intervalMs = DEFAULT_STATS_INTERVAL_MS, stopSignal = null) {
   const stats = { cpuPercent: [], memoryMB: [], memoryPercent: [] };
-  const iterCount = Math.max(1, Math.ceil(durationSeconds * 1000 / intervalMs));
+  const startTime = Date.now();
+  const deadline = startTime + durationSeconds * 1000;
+  // Sampling must stop when the load window ends. A fixed iteration count would
+  // keep issuing `docker stats` subprocesses after autocannon stopped, mixing
+  // idle readings into "under load" stats and needlessly extending each level.
+  const shouldStop = () => (stopSignal && stopSignal.stopped) || Date.now() >= deadline;
 
   return new Promise((resolve) => {
-    let count = 0;
-    const timer = setInterval(() => {
-      try {
-        const out = execSync(
-          `docker stats ${containerName} --no-stream --format "{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}"`,
-          { encoding: 'utf8' }
-        ).trim();
+    let attempts = 0;
 
-        const parts = out.split('|');
+    const finish = () => {
+      const avg = arr => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
+      const mx = arr => (arr.length ? Math.max(...arr) : 0);
+      resolve({
+        // Actual elapsed wall time and successful sample count, so consumers can
+        // distinguish a truncated window from a full one. Per-signal counts let
+        // the README render N/A for a field whose parsing failed rather than
+        // publishing a misleading 0.
+        durationSeconds: Math.round((Date.now() - startTime) / 1000),
+        samples: stats.cpuPercent.length,
+        cpuSamples: stats.cpuPercent.length,
+        memorySamples: stats.memoryMB.length,
+        attempts,
+        cpu: { average: avg(stats.cpuPercent), max: mx(stats.cpuPercent) },
+        memory: {
+          averageMB: avg(stats.memoryMB),
+          maxMB: mx(stats.memoryMB),
+          averagePercent: avg(stats.memoryPercent),
+          maxPercent: mx(stats.memoryPercent)
+        }
+      });
+    };
+
+    // Use async exec, NOT execSync: this sampler runs concurrently with
+    // autocannon in the same Node process. A synchronous `docker stats`
+    // subprocess blocks the event loop and freezes the load generator,
+    // which crushes measured throughput and pins latency near the sampling
+    // interval. A recursive async loop keeps the sampling interval but never
+    // blocks request generation.
+    const tick = async () => {
+      if (shouldStop()) {
+        finish();
+        return;
+      }
+
+      attempts++;
+      try {
+        const { stdout } = await execAsync(
+          `docker stats ${containerName} --no-stream --format "{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}"`
+        );
+
+        // Drop any reading that completed only after the load window closed.
+        if (shouldStop()) {
+          finish();
+          return;
+        }
+
+        const parts = stdout.trim().split('|');
         // CPU
         const cpu = parseFloat(parts[0].replace('%', '')) || 0;
         stats.cpuPercent.push(cpu);
@@ -119,25 +175,14 @@ function sampleContainerStats(containerName, durationSeconds, intervalMs = DEFAU
         // ignore errors, container may not be up yet
       }
 
-      count++;
-      if (count >= iterCount) {
-        clearInterval(timer);
-        const avg = arr => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
-        const mx = arr => (arr.length ? Math.max(...arr) : 0);
-
-        resolve({
-          durationSeconds: Math.round((iterCount * intervalMs) / 1000),
-          samples: count,
-          cpu: { average: avg(stats.cpuPercent), max: mx(stats.cpuPercent) },
-          memory: {
-            averageMB: avg(stats.memoryMB),
-            maxMB: mx(stats.memoryMB),
-            averagePercent: avg(stats.memoryPercent),
-            maxPercent: mx(stats.memoryPercent)
-          }
-        });
+      if (shouldStop()) {
+        finish();
+      } else {
+        setTimeout(tick, intervalMs);
       }
-    }, intervalMs);
+    };
+
+    tick();
   });
 }
 
@@ -159,16 +204,20 @@ async function runStressTest() {
     }
 
     // Run tests for multiple concurrencies
-    const fwResult = { framework: f.name, url: f.url, samples: [] };
+    const fwResult = { framework: f.name, url: f.url, runId: RUN_ID, samples: [] };
 
     for (const c of concurrencies) {
       console.log(`\n   🔫 Running autocannon: ${c} connections for ${durationSeconds}s`);
-      let statsPromise; 
+      // Shared flag: autocannon flips this when its window ends so the stats
+      // sampler stops immediately and never records idle readings.
+      const stopSignal = { stopped: false };
+      let statsPromise;
       try {
         const containerName = `frontend-benchmark-${f.service}`;
         // start sampling container stats in parallel with the autocannon run
-  statsPromise = sampleContainerStats(containerName, durationSeconds, STATS_INTERVAL_MS);
+        statsPromise = sampleContainerStats(containerName, durationSeconds, STATS_INTERVAL_MS, stopSignal);
         const res = await runAutocannon(f.url, c, durationSeconds);
+        stopSignal.stopped = true;
         const containerStats = await statsPromise;
 
         const sample = {
@@ -185,10 +234,14 @@ async function runStressTest() {
         };
 
         console.log(`   ✅ ${f.name} @ ${c} connections => ${Math.round(res.requests.average)} req/s, p50 ${Math.round(res.latency.p50)}ms, p95 ${Math.round(res.latency.p95 || res.latency.p99 || 0)}ms`);
+        if (containerStats) {
+          console.log(`      stats: ${containerStats.samples} samples over ${containerStats.durationSeconds}s`);
+        }
 
         fwResult.samples.push(sample);
       } catch (err) {
         console.error(`   ❌ Error running autocannon: ${err.message || err}`);
+        stopSignal.stopped = true;
         let containerStats = null;
         if (statsPromise) {
           try { containerStats = await statsPromise; } catch (e) { /* ignore */ }
