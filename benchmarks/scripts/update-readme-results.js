@@ -114,31 +114,38 @@ function extractPreviousLighthouse(readme) {
   return { date, table: tableLines.join('\n') };
 }
 
-// Render the "### Test Environment" subsection. Falls back to the known
-// GitHub-hosted runner defaults used by the comprehensive workflow when no
-// environment.json artifact is available.
+// Render the "### Test Environment" subsection from environment.json, which the
+// comprehensive workflow writes on every run. When that file is absent (e.g. a
+// manual `npm run update-readme`), fields are reported as "not captured" rather
+// than substituting specs from an unrelated run — publishing invented hardware
+// would corrupt cross-run comparisons.
 function renderTestEnvironment() {
-  const env = readEnvironment() || {};
-  const runner = env.runner || {};
+  const env = readEnvironment();
+  const runner = (env && env.runner) || {};
+  const unknown = '_not captured_';
   const rows = [
-    ['Runner', runner.os || 'ubuntu-latest (ubuntu-24.04.5 LTS), GitHub-hosted'],
-    ['CPU', runner.cpu || '4 vCPU'],
-    ['Memory', runner.memory || '15.61 GiB'],
-    ['Node.js', runner.node || '24 (v24.21.0)'],
-    ['Browser (Lighthouse)', env.chrome || 'Chromium 153.0.8010.36'],
-    ['Docker Engine', env.docker || '28.0.4 (containerd 2.3.5, runc 1.5.1)'],
-    ['Load test tool', env.loadTool || 'autocannon 8.x (pipelining 1)'],
-    ['Workflow run', env.runUrl || 'https://github.com/ypcipansor/frontend-benchmark/actions/workflows/benchmark-comprehensive.yml']
+    ['Runner', runner.os],
+    ['CPU', runner.cpu],
+    ['Memory', runner.memory],
+    ['Node.js', runner.node],
+    ['Browser (Lighthouse)', env && env.chrome],
+    ['Docker Engine', env && env.docker],
+    ['Load test tool', env && env.loadTool],
+    ['Workflow run', env && env.runUrl]
   ];
+
   let md = '### Test Environment\n\n';
   md += '| Item | Value |\n|------|-------|\n';
-  rows.forEach(([k, v]) => { md += `| ${k} | ${v} |\n`; });
-  if (env.artifactRetentionDays) {
-    md += `\n> Raw results (` + '`benchmarks/results/*.json`' + `) are gitignored; they are uploaded as a ${env.artifactRetentionDays}-day workflow artifact. `;
-    md += `See the workflow run linked above.\n`;
+  rows.forEach(([k, v]) => { md += `| ${k} | ${v || unknown} |\n`; });
+
+  const retention = (env && env.artifactRetentionDays) || 90;
+  md += `\n> Raw results (` + '`benchmarks/results/*.json`' + `) are gitignored; they are uploaded as a ${retention}-day workflow artifact.`;
+  if (env && env.runUrl) {
+    md += ' See the workflow run linked above.';
   } else {
-    md += '\n> Raw results (`benchmarks/results/*.json`) are gitignored and uploaded as a 90-day workflow artifact.\n';
+    md += ' Run the Comprehensive Benchmark workflow (or provide a `benchmarks/results/environment.json`) to capture this run\'s environment.';
   }
+  md += '\n';
   return md;
 }
 
@@ -275,8 +282,8 @@ function generateBenchmarkSection(results, previousReadme) {
 
   // ----- Runtime resource usage (CPU / Memory) -----
   md += '### Runtime Resource Usage\n\n';
-  md += 'The first table samples an **idle container** (no traffic) for 30s. It is useful only for baseline/startup footprint — it is *not* representative of CPU or memory under load.\n\n';
-  md += '**Idle container sampling (30s, no load)**\n\n';
+  md += 'The first table is a **pre-audit idle sample**: the container is up with no traffic, captured for 30s *before* the Lighthouse audit runs. It measures baseline/startup footprint only — it is *not* representative of CPU or memory under load. (A separate under-load table is drawn from the stress-test run below.)\n\n';
+  md += '**Idle container sampling (30s, no load, pre-Lighthouse)**\n\n';
   md += '| Framework | CPU (avg / max) | Memory (avg / max) |\n';
   md += '|-----------|----------------:|-------------------:|\n';
   const hasRuntimeData = (c) =>
@@ -296,17 +303,19 @@ function generateBenchmarkSection(results, previousReadme) {
 
   // Under-load resource usage, sampled by the stress test while autocannon
   // drove the container. Rendered only when such samples exist.
-  const hasStressStats = (r) => {
+  const peakUnderLoad = (r) => {
     const s = peakStressSample(r);
-    return !!(s && s.containerStats && s.containerStats.cpu && s.containerStats.memory);
+    if (!(s && s.containerStats && s.containerStats.cpu && s.containerStats.memory && s.containerStats.samples > 0)) return null;
+    return s;
   };
-  if (results.some(hasStressStats)) {
-    md += '**Under load (peak stress sample, 2,000 connections)**\n\n';
+  if (results.some(r => peakUnderLoad(r))) {
+    md += '**Under load (highest-throughput stress sample per framework)**\n\n';
+    md += 'Each row is the framework\'s own peak sample; concurrency differs where a framework peaked below the maximum, so compare across rows with care.\n\n';
     md += '| Framework | Concurrency | CPU (avg / max) | Memory (avg / max) |\n';
     md += '|-----------|------------:|----------------:|-------------------:|\n';
     rtSorted.forEach(r => {
-      const s = peakStressSample(r);
-      if (!(s && s.containerStats && s.containerStats.cpu && s.containerStats.memory)) {
+      const s = peakUnderLoad(r);
+      if (!s) {
         md += `| ${r.framework} | N/A | N/A | N/A |\n`;
         return;
       }

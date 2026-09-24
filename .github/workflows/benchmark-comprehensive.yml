@@ -71,45 +71,7 @@ jobs:
       
       - name: Capture test environment metadata
         working-directory: benchmarks/scripts
-        run: |
-          node - <<'NODE'
-          const fs = require('fs');
-          const path = require('path');
-          const { execSync } = require('child_process');
-
-          const sh = (cmd) => { try { return execSync(cmd, { encoding: 'utf-8' }).trim(); } catch (e) { return null; } };
-
-          const dockerVersion = sh("docker version --format '{{.Server.Version}}'");
-          const containerd = sh("docker version --format '{{.Server.Containerd.Version}}'");
-          const runc = sh("docker version --format '{{.Server.Runc.Version}}'");
-          const cpus = sh("nproc");
-          const memKb = sh("awk '/MemTotal/ {print $2}' /proc/meminfo");
-          const memGiB = memKb ? (parseInt(memKb, 10) / 1024 / 1024).toFixed(2) + ' GiB' : null;
-          const chrome = sh("${CHROME_PATH:-chromium} --version 2>/dev/null");
-          const nodeVersion = process.version;
-
-          const env = {
-            runner: {
-              os: 'ubuntu-latest (GitHub-hosted)',
-              cpu: cpus ? `${cpus} vCPU` : null,
-              memory: memGiB,
-              node: `24 (${nodeVersion})`
-            },
-            chrome: chrome || 'Chromium (version unavailable)',
-            docker: dockerVersion
-              ? `${dockerVersion}${containerd ? ` (containerd ${containerd}` : ''}${runc ? `, runc ${runc})` : (containerd ? ')' : '')}`
-              : null,
-            loadTool: 'autocannon 8.x (pipelining 1)',
-            runUrl: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
-            artifactRetentionDays: 90,
-            generatedAt: new Date().toISOString()
-          };
-
-          const outDir = path.join(__dirname, '../results');
-          fs.mkdirSync(outDir, { recursive: true });
-          fs.writeFileSync(path.join(outDir, 'environment.json'), JSON.stringify(env, null, 2));
-          console.log('Wrote environment.json:', JSON.stringify(env));
-          NODE
+        run: node capture-environment.js
 
       - name: Update README.md with benchmark results
         working-directory: benchmarks/scripts
@@ -163,9 +125,11 @@ jobs:
           git push origin "$BRANCH_NAME"
           
           # Create pull request using GitHub CLI.
-          # Build the body in a single-quoted heredoc so markdown backticks are
-          # NOT interpreted as shell command substitution (which previously
-          # blanked out the file paths in the description).
+          # The body is built from a QUOTED heredoc delimiter so nothing inside
+          # is expanded by the shell. Markdown backticks (which otherwise run as
+          # command substitution, silently blanking text) and any future $VAR
+          # are therefore safe. Our two dynamic values are injected afterwards
+          # via literal placeholders.
           LH_STATUS="Lighthouse performance metrics"
           if grep -q "failed to produce Lighthouse results" README.md; then
             LH_STATUS="Lighthouse performance metrics — **unavailable this run** (last valid table preserved and labelled)"
@@ -173,24 +137,26 @@ jobs:
 
           RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
 
-          PR_BODY=$(cat <<EOF | sed 's/^ *//'
+          PR_BODY=$(cat <<'EOF' | sed 's/^ *//'
           This PR contains updated benchmark results from the automated comprehensive benchmark run.
 
           ## Summary
           - Full benchmark including all frameworks (React, Vue, Angular, Leptos, Yew, Dioxus, Blade)
           - Stress tests included
           - Bundle size analysis
-          - ${LH_STATUS}
+          - @LH_STATUS@
           - CPU and memory usage statistics (idle and under-load, labelled)
 
           ## Test environment
-          See the "Test Environment" section in \`README.md\` for runner specs, browser/Docker versions, and the load-test tool.
+          See the "Test Environment" section in `README.md` for runner specs, browser/Docker versions, and the load-test tool.
 
-          > **Note:** This PR updates \`README.md\` only. The raw benchmark results stay in \`benchmarks/results/\`, are gitignored, and are available as a 90-day workflow artifact: ${RUN_URL}
+          > **Note:** This PR updates `README.md` only. The raw benchmark results stay in `benchmarks/results/`, are gitignored, and are available as a 90-day workflow artifact: @RUN_URL@
 
           Please review the results and merge if everything looks correct.
           EOF
           )
+          PR_BODY="${PR_BODY//@RUN_URL@/$RUN_URL}"
+          PR_BODY="${PR_BODY//@LH_STATUS@/$LH_STATUS}"
 
           gh pr create \
             --title "Update Benchmark Results - $(date +%Y-%m-%d)" \

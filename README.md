@@ -17,8 +17,6 @@
 
 > 📐 **Comparability:** Throughput and memory figures are **not directly comparable across runs** when the runner/host or container resource limits change — a different CPU allocation, cgroup memory limit, or kernel changes the measured req/s and RSS substantially. Large swings versus a previous run (e.g. throughput or RSS dropping by more than half) usually indicate an environment change, not a framework regression. Compare only runs that share the Test Environment below.
 
-> 🔎 **This run vs. the 2026-09-16 run:** Dioxus throughput fell from ~38,050 req/s to ~15,099 req/s and reported RSS fell from ~50 MB to ~5 MB. Every framework now clusters near a ~12k–15.5k req/s ceiling and ~5 MB baseline, which points to a changed runner/container environment (and a load-generator sampling artefact) rather than per-framework regressions. Treat cross-run deltas here as environment noise until a run is repeated on an identical runner.
-
 ### Quick Highlights
 
 - 📦 **Smallest gzipped bundle:** blade — **1.32 KB**
@@ -91,9 +89,9 @@ _This run (2026-09-24) failed to produce Lighthouse results — the audit could 
 
 ### Runtime Resource Usage
 
-The first table samples an **idle container** (no traffic) for 30s. It is useful only for baseline/startup footprint — it is *not* representative of CPU or memory under load.
+The first table is a **pre-audit idle sample**: the container is up with no traffic, captured for 30s *before* the Lighthouse audit runs. It measures baseline/startup footprint only — it is *not* representative of CPU or memory under load. (A separate under-load table is drawn from the stress-test run below.)
 
-**Idle container sampling (30s, no load)**
+**Idle container sampling (30s, no load, pre-Lighthouse)**
 
 | Framework | CPU (avg / max) | Memory (avg / max) |
 |-----------|----------------:|-------------------:|
@@ -105,7 +103,9 @@ The first table samples an **idle container** (no traffic) for 30s. It is useful
 | dioxus | 0.00% / 0.00% | 4.84 MB / 5.19 MB |
 | blade | 0.01% / 0.01% | 18.78 MB / 19.02 MB |
 
-**Under load (peak stress sample, 2,000 connections)**
+**Under load (highest-throughput stress sample per framework)**
+
+Each row is the framework's own peak sample; concurrency differs where a framework peaked below the maximum, so compare across rows with care.
 
 | Framework | Concurrency | CPU (avg / max) | Memory (avg / max) |
 |-----------|------------:|----------------:|-------------------:|

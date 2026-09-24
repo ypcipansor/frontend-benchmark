@@ -68,11 +68,16 @@ intentionally **gitignored**: the CI job regenerates
 `comprehensive-benchmark-results.json` on every run and uploads it as a
 **90-day workflow artifact** rather than committing it. To match that process:
 
-- For automated runs, link the workflow run URL in the README's Test Environment
-  section (the generator does this automatically).
-- For manual submissions, attach the raw JSON to the pull request (or link the
-  workflow artifact) and add the summary to `README.md`. Do **not** commit large
-  JSON blobs to `benchmarks/results/`.
+- For automated runs, the workflow runs `benchmarks/scripts/capture-environment.js`
+  to write `benchmarks/results/environment.json`, and links the workflow run URL
+  in the README's Test Environment section automatically.
+- For manual submissions, run `npm run capture-env` on the measured machine
+  before `npm run update-readme` so the table records *your* hardware and
+  versions (override with `BENCH_OS`, `BENCH_CPU`, `BENCH_MEMORY`,
+  `BENCH_RUN_URL` if needed). If you skip it, the README will say
+  "_not captured_" rather than guess. Attach the raw JSON to the pull request
+  (or link the workflow artifact); do **not** commit large JSON blobs to
+  `benchmarks/results/`.
 
 > There is currently no tracked `RESULTS.md`; the README is the durable record of
 > the summary tables. Add per-run notes to the PR description instead.
