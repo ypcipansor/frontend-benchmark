@@ -105,6 +105,10 @@ jobs:
             echo "::endgroup::"
           done
 
+      - name: Shared stylesheet is a single source (no drift)
+        working-directory: docs
+        run: npm run check:css
+
       - name: Start all seven servers
         run: bash docs/scripts/start-servers.sh --ready-timeout 180
 

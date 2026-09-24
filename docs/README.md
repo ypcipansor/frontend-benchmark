@@ -60,6 +60,7 @@ holding a port after a stop.
 | 5. Optimize | `npm run optimize` | card-cropped `images/<framework>/*.jpg` |
 | 6. Montage | `npm run montage` | `images/comparison-*.png` |
 | — Docs | `npm run check:docs` | documented npm commands name their working directory |
+| — Styles | `npm run check:css` | `shared/styles/todo.css` is a single, un-drifted source |
 | — Tests | `npm test` | regression tests for the tooling's failure modes |
 
 Note the ordering: `parity` is the **live DOM/geometry/state** check and does not
@@ -132,6 +133,38 @@ this necessary:
 The report must also be a single capture generation: `screenshot.js` stamps each
 invocation with a `captureRunId` (plus schema, viewport and DPR) and all seven
 entries must share the same id, otherwise the checker refuses to run.
+
+The rectangles are treated as untrusted input. Before any NumPy slicing,
+`clamp_box()` rejects a rectangle whose coordinates are not finite (`NaN`,
+`infinity`), whose width or height is not positive, or which does not overlap the
+image at all — each with a `ReportError`. A rectangle that only partially leaves
+the frame is padded and clamped to a valid, non-empty, in-bounds slice. This closes
+a real hole: a rectangle entirely left of (or above) the image produced a negative
+`x1`/`y1`, and NumPy reads negative endpoints relative to the far end of the array,
+so the mask silently cleared pixels at the **opposite** edge and could hide a
+genuine difference there. The checker now fails such a rectangle instead of
+accepting it.
+
+## The shared stylesheet is a single source
+
+`shared/styles/todo.css` is the one stylesheet every implementation renders with,
+and `npm run check:css` (`docs/check-shared-stylesheet.js`) makes that true rather
+than aspirational:
+
+- **Leptos, Yew and Dioxus link it directly** from `index.html`; the check asserts
+  each file references `../../shared/styles/todo.css`.
+- **React, Vue, Angular and Blade** bundle or serve the CSS from their own tree, so
+  each keeps a copy — which the check requires to be **byte-for-byte identical** to
+  the shared file.
+
+Append a single byte to any copy without syncing and the check fails; run
+`npm run sync:css` to rewrite the copies from the source. The test fixture's
+stylesheet is checked too, because the regression suite renders the fixture with
+it. Blade is the reason the copies are worth checking: it used to differ because
+its card div carried `id="app"`, which matched the shared
+`#app { display: contents }` mount-point rule and would have collapsed Blade's own
+card. Nothing selected that id, so it was removed and Blade's copy is now
+identical like the rest.
 
 Everything else must be **exactly equal per RGB channel**: a single unit of change
 in any channel outside the two masked regions counts as a difference. There is no

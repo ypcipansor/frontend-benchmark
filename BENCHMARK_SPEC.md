@@ -66,12 +66,14 @@ Required text content:
 | Console | no errors or uncaught exceptions |
 | Page title | `Todo List - <Framework>` |
 
-To make the card the only flex child of `<body>`, the shared stylesheet neutralises every mount point (`#root`, `#app`, `#main`, `app-root`) with `display: contents`. Implementations that mount into a wrapper must not override this.
+To make the card the only flex child of `<body>`, the shared stylesheet neutralises every mount point (`#root`, `#app`, `#main`, `app-root`) with `display: contents`. Implementations that mount into a wrapper must not override this. In particular, an implementation that renders the card directly into `<body>` (Blade) must not give that card `id="app"` — the id would match this rule and collapse the card.
+
+`shared/styles/todo.css` is the single source. Leptos, Yew and Dioxus link it directly from `index.html`; React, Vue, Angular and Blade bundle or serve it from their own tree and keep a copy, and [`docs/check-shared-stylesheet.js`](docs/check-shared-stylesheet.js) (`cd docs && npm run check:css`) fails unless every copy is byte-identical to the shared file. Run `cd docs && npm run sync:css` to rewrite the copies after editing the source.
 
 Parity is checked at two levels:
 
 - [`docs/parity-check.js`](docs/parity-check.js) asserts DOM structure, geometry, content and state.
-- [`docs/pixel-parity.py`](docs/pixel-parity.py) diffs each framework's screenshot against the React reference in every UI state and fails on any difference outside the two regions that hold the framework name (the header badge and the footer). Each of those two rectangles is masked on its own (never their bounding hull), so a difference in the gap between them still fails. The report must be a single capture generation: all seven entries share one `captureRunId`.
+- [`docs/pixel-parity.py`](docs/pixel-parity.py) diffs each framework's screenshot against the React reference in every UI state and fails on any difference outside the two regions that hold the framework name (the header badge and the footer). Each of those two rectangles is masked on its own (never their bounding hull), so a difference in the gap between them still fails. The report must be a single capture generation: all seven entries share one `captureRunId`. The rectangles are validated before they become NumPy slices: a non-finite value, a non-positive width/height, or a rectangle that does not overlap the image fails with a `ReportError` rather than masking the wrong pixels.
 
 Because that pixel check is strict, the remaining-count line must be segmented identically everywhere: wrap the digits in their own element rather than emitting `<count> items remaining` as a single merged text node. Different text-node segmentation changes subpixel glyph shaping and produces a real diff even when the rendered text is the same.
 

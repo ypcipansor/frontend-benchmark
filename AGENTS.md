@@ -42,6 +42,7 @@ npm run pixel     # pixel diff vs the React reference          (works offline)
 npm run optimize  # card-cropped docs/images/*/*.jpg  (works from any cwd)
 npm run montage   # docs/images/comparison-*.png
 npm run check:docs # documented npm commands name their working directory
+npm run check:css  # shared/styles/todo.css really is a single source
 npm test          # regression tests for the tooling's failure modes
 bash scripts/stop-servers.sh
 ```
@@ -66,6 +67,16 @@ framework, but still rejects it if its own id is missing, empty or not a string.
 (`benchmarks/scripts`), so a published command can never drift away from the
 package.json that defines it.
 
+`npm run check:css` (`docs/check-shared-stylesheet.js`) makes
+`shared/styles/todo.css` a genuinely single source. Leptos, Yew and Dioxus link it
+directly from `index.html` (checked: the link must reference
+`../../shared/styles/todo.css`), while React, Vue, Angular and Blade — whose
+bundlers or static server need the file inside their own tree — keep a copy that
+must be **byte-for-byte identical**. Change one rule in a copy without syncing and
+the check fails; `npm run sync:css` rewrites the copies from the source. A
+regression test appends a byte to a copy and proves the check rejects it, so the
+"single source" claim is enforced rather than asserted.
+
 ## Gotchas
 
 - **The Dioxus dist must be a release build.** A debug `trunk build` leaves a
@@ -77,7 +88,14 @@ package.json that defines it.
   and the footer, and even those masks come from live element geometry recorded
   during capture — not hardcoded rows. Each rectangle is cleared on its own (never
   the bounding hull of the two), so a difference in the gap between them still
-  fails. Anything else must be byte-identical.
+  fails. Anything else must be byte-identical. The rectangles are *untrusted
+  input*: `clamp_box()` rejects any non-finite coordinate, any rectangle with a
+  non-positive width/height, and any rectangle that does not overlap the image
+  (with a `ReportError`, before NumPy slicing). A fully off-screen rectangle whose
+  naive `x1`/`y1` went negative used to make NumPy read the mask relative to the
+  array's far end, silently clearing pixels on the *opposite* edge — a real
+  difference could hide there. Partially off-screen rectangles are still padded
+  and clamped to a valid non-empty slice.
 - **Server start/stop is identity-checked.** `start-servers.sh` launches each
   server through `scripts/lib/serve.sh` under `setsid`; the wrapper writes the
   atomic `docs/logs/<framework>.state` (PID, process-group id, `/proc/<pid>/stat`
@@ -95,6 +113,16 @@ package.json that defines it.
   `/proc` — a stale record can never abort a valid startup, and a process this run
   launched that dies before recording a valid state still fails. Unknown `--only`
   and malformed numeric flags exit 2 before anything starts.
+- **Failure cleanup reaps the whole group, not just the leader.**
+  `stop_started()` signals the *process group* the run launched, records that
+  group id (not just the leader PID), and after the grace period checks whether
+  the whole group still has live (non-zombie) members before escalating to
+  `SIGKILL -PGID`. A leader that exits on `SIGTERM` while a child ignores it used
+  to make a leader-only `kill -0` false, so the child never got the `SIGKILL` and
+  kept the port. The group id comes from the verified state/the recorded launch, so
+  cleanup can never signal a foreign group. A regression test drives the
+  production script with a `SIGTERM`-ignoring child and proves the child dies and
+  the port frees.
 - **Never hardcode the card height.** Text metrics differ per platform: the same
   capture is 792px tall on the Ubuntu CI runner and 796px on this sandbox. The
   verifier therefore checks left/width exactly and, for height, requires the seven
@@ -110,7 +138,11 @@ package.json that defines it.
   true empty-state capture.
 - **Every mount point must stay `display: contents`.** `#root`, `#app`, `#main`
   and `app-root` are neutralised in `shared/styles/todo.css` so the card is the
-  only flex child of `<body>`. Overriding this collapses the card to 389px.
+  only flex child of `<body>`. Overriding this collapses the card to 389px. Blade
+  renders `.todo-app` straight into `<body>`, so its card div must **not** carry
+  `id="app"` — that id would match this rule and collapse Blade's own card, which
+  is why Blade's `style.css` used to be a slightly different file. Nothing selects
+  the id, so it was removed and Blade's copy is now byte-identical.
 - **Completion is 1-based.** Use `(i + 1) % 3 === 0` so items 3, 6, …, 99 are
   completed (33 completed, 67 remaining).
 - **Documented commands must be reproducible.** Every documented `update-readme`

@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="todo-app" id="app">
+    <div class="todo-app">
         <div class="todo-header">
             <h1>Todo List</h1>
             <span class="framework-badge">Blade.php</span>

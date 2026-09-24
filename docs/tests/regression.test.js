@@ -710,6 +710,229 @@ function pokePixel(file, x, y, channel, delta) {
     });
   }
 
+  // --- 20: off-screen / non-finite rectangles must fail, not mask wrongly ----
+  console.log('\npixel checker rectangle validation (finding 20)');
+
+  /**
+   * Write a fresh shot set whose reference `badge` rectangle is `box`, run the
+   * production pixel-parity.py and return the result. A `pokes` callback can
+   * change pixels to prove a difference is (or is not) hidden.
+   */
+  function runWithBadgeRect(box, name, pokes) {
+    const dir = tmpDir(name);
+    writeShots(dir, {
+      mutate: (_d, report) => {
+        for (const fw of ['react', ...FRAMEWORKS]) {
+          if (report[fw]) report[fw].labelRects.all.badge = box;
+        }
+      },
+    });
+    if (pokes) pokes(dir);
+    return run('python3', [path.join(DOCS, 'pixel-parity.py'), '--shots', dir]);
+  }
+
+  const W = VIEWPORT_W;
+  const H = VIEWPORT_H;
+  const offScreen = [
+    ['entirely left of the image', [-200, 200, 90, 28]],
+    ['entirely above the image', [560, -200, 90, 28]],
+    ['entirely right of the image', [W + 100, 200, 90, 28]],
+    ['entirely below the image', [560, H + 100, 90, 28]],
+  ];
+  for (const [label, box] of offScreen) {
+    await test(`pixel-parity fails on a rectangle ${label}`, () => {
+      const res = runWithBadgeRect(box, 'rect-off');
+      assert(res.status !== 0, `an off-screen rectangle was accepted:\n${res.stdout}`);
+      assert(/does not overlap|out-of-bounds|non-finite|degenerate/i.test(res.stdout),
+        `unclear failure: ${res.stdout}`);
+    });
+  }
+
+  {
+    // The dangerous case: an off-left rectangle whose naive x1 was negative, so
+    // NumPy would read the mask relative to the array end and clear pixels at the
+    // opposite (right) edge — hiding a real difference there. With the fix the
+    // rectangle is rejected outright, so the difference can never be hidden.
+    await test('an off-left rectangle cannot hide a difference on the opposite edge', () => {
+      const res = runWithBadgeRect([-200, 200, 90, 28], 'rect-hide', (dir) => {
+        // A real difference near the right edge, far from any legend.
+        pokePixel(path.join(dir, 'vue', 'all.png'), W - 50, 300, 0, 1);
+      });
+      assert(res.status !== 0, `the difference was hidden by a negative-index mask:\n${res.stdout}`);
+      assert(/does not overlap|out-of-bounds/i.test(res.stdout), `not rejected as out-of-range: ${res.stdout}`);
+    });
+  }
+
+  for (const [label, token] of [
+    ['a NaN coordinate', 'NaN'],
+    ['an infinite coordinate', 'Infinity'],
+  ]) {
+    await test(`pixel-parity fails on ${label}`, () => {
+      // JSON has no NaN/Infinity literals, but Python's json module parses the
+      // bare tokens. The checker must reject them before int()/slicing — so the
+      // report is written as raw text with the bare token in the badge rectangle.
+      const dir = tmpDir('rect-nonfinite');
+      writeShots(dir);
+      const reportPath = path.join(dir, 'screenshot-report.json');
+      const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+      const bad = `[${token}, 200, 90, 28]`;
+      for (const fw of ['react', ...FRAMEWORKS]) {
+        if (report[fw]) report[fw].labelRects.all.badge = [560, 145, 90, 28];
+      }
+      let json = JSON.stringify(report, null, 2);
+      // Replace the reference badge rectangle with the raw-token version.
+      json = json.replace(
+        /"badge": \[\s*560,\s*145,\s*90,\s*28\s*\]/,
+        `"badge": ${bad}`);
+      fs.writeFileSync(reportPath, json);
+      const res = run('python3', [path.join(DOCS, 'pixel-parity.py'), '--shots', dir]);
+      assert(res.status !== 0, `a non-finite rectangle was accepted:\n${res.stdout}`);
+      assert(/non-finite|rectangle/i.test(res.stdout), `unclear failure: ${res.stdout}`);
+      // Prove the difference was not silently masked at the opposite edge.
+      assert(!/PIXEL PARITY CONFIRMED/.test(res.stdout), 'non-finite rect still yielded a pass');
+    });
+  }
+
+  for (const [label, box] of [
+    ['zero width', [560, 145, 0, 28]],
+    ['negative height', [560, 145, 90, -5]],
+  ]) {
+    await test(`pixel-parity fails on a rectangle with ${label}`, () => {
+      const res = runWithBadgeRect(box, 'rect-degenerate');
+      assert(res.status !== 0, `a degenerate rectangle was accepted:\n${res.stdout}`);
+      assert(/degenerate/i.test(res.stdout), `unclear failure: ${res.stdout}`);
+    });
+  }
+
+  {
+    // A rectangle that only partially leaves the frame must still be padded and
+    // clamped to a valid, non-empty, in-bounds slice — the fix must not reject
+    // legitimate geometry. This box extends off the left edge yet still spans the
+    // marker columns, so a correct clamp masks the framework-name difference.
+    const PARTIAL = [-10, 140, 700, 40];   // clamped x0=0, x1=692, y 138..182
+    await test('a partially off-screen rectangle still clamps to a valid slice', () => {
+      const res = runWithBadgeRect(PARTIAL, 'rect-partial');
+      assert(res.status === 0, `a partially off-screen rectangle was rejected:\n${res.stdout}`);
+    });
+    await test('a partially off-screen rectangle still masks its in-frame area', () => {
+      // Poke inside the clamped region but away from the marker: it must be
+      // masked (pass), not reported as a difference.
+      const dir = tmpDir('rect-partial-mask');
+      writeShots(dir, {
+        mutate: (_d, report) => {
+          for (const fw of ['react', ...FRAMEWORKS]) {
+            if (report[fw]) report[fw].labelRects.all.badge = PARTIAL;
+          }
+        },
+      });
+      pokePixel(path.join(dir, 'vue', 'all.png'), 30, 160, 0, 40);
+      const res = run('python3', [path.join(DOCS, 'pixel-parity.py'), '--shots', dir]);
+      assert(res.status === 0, `a difference inside the clamped mask failed:\n${res.stdout}`);
+    });
+    await test('the clamp keeps a difference just outside the partial rectangle', () => {
+      // The clamped box ends at x1=692; a poke at x=700 must still be caught, so
+      // clamping did not over-widen the mask.
+      const dir = tmpDir('rect-partial-edge');
+      writeShots(dir, {
+        mutate: (_d, report) => {
+          for (const fw of ['react', ...FRAMEWORKS]) {
+            if (report[fw]) report[fw].labelRects.all.badge = PARTIAL;
+          }
+        },
+      });
+      pokePixel(path.join(dir, 'vue', 'all.png'), 700, 160, 0, 40);
+      const res = run('python3', [path.join(DOCS, 'pixel-parity.py'), '--shots', dir]);
+      assert(res.status !== 0, 'a difference outside the clamped mask was hidden');
+      assert(/vue/.test(res.stdout), `diverging framework not named: ${res.stdout}`);
+    });
+  }
+
+  // --- 21: the shared stylesheet must be a single, enforced source ----------
+  console.log('\nshared stylesheet single source (finding 21)');
+  {
+    const checker = path.join(DOCS, 'check-shared-stylesheet.js');
+    await test('the shared stylesheet check passes on the real repository', () => {
+      const res = run('node', [checker], { timeout: 30000 });
+      assert(res.status === 0, `checker failed:\n${res.stdout}${res.stderr}`);
+      assert(/SHARED STYLESHEET OK/.test(res.stdout), `no success line: ${res.stdout}`);
+    });
+  }
+  {
+    // A copy that drifts by even one byte must fail the check — this is what
+    // turns "single source" from a claim into an enforced property.
+    const dir = tmpDir('css-drift');
+    const sharedDir = path.join(dir, 'shared', 'styles');
+    fs.mkdirSync(sharedDir, { recursive: true });
+    const source = fs.readFileSync(path.join(ROOT, 'shared', 'styles', 'todo.css'));
+    fs.writeFileSync(path.join(sharedDir, 'todo.css'), source);
+    for (const rel of [
+      'implementations/react/src/App.css',
+      'implementations/vue/src/style.css',
+      'implementations/angular/src/styles.css',
+      'implementations/blade/style.css',
+      'docs/tests/fixtures/fixture.css',
+    ]) {
+      const p = path.join(dir, rel);
+      fs.mkdirSync(path.dirname(p), { recursive: true });
+      fs.writeFileSync(p, source);
+    }
+    for (const rel of ['leptos', 'yew', 'dioxus']) {
+      const p = path.join(dir, 'implementations', rel, 'index.html');
+      fs.mkdirSync(path.dirname(p), { recursive: true });
+      fs.writeFileSync(p, '<link rel="stylesheet" href="../../shared/styles/todo.css">');
+    }
+    const checker = path.join(DOCS, 'check-shared-stylesheet.js');
+    await test('the shared stylesheet check passes on a matching tree', () => {
+      const res = run('node', [checker, '--root', dir], { timeout: 30000 });
+      assert(res.status === 0, `a matching tree was rejected:\n${res.stdout}${res.stderr}`);
+    });
+    await test('the check fails when one copy diverges byte-for-byte', () => {
+      fs.appendFileSync(path.join(dir, 'implementations/vue/src/style.css'), '\n/* drift */\n');
+      const res = run('node', [checker, '--root', dir], { timeout: 30000 });
+      assert(res.status !== 0, 'a drifted copy was accepted');
+      const out = `${res.stdout}${res.stderr}`;
+      assert(/vue\/src\/style\.css has drifted/.test(out), `copy not named: ${out}`);
+    });
+    await test('the check fails when a direct linker stops referencing the shared file', () => {
+      // Repair the copy drift first so only the broken link can fail the check.
+      run('node', [checker, '--root', dir, '--write'], { timeout: 30000 });
+      const p = path.join(dir, 'implementations/leptos/index.html');
+      fs.writeFileSync(p, '<link rel="stylesheet" href="todo.css">');
+      const res = run('node', [checker, '--root', dir], { timeout: 30000 });
+      assert(res.status !== 0, 'a broken direct link was accepted');
+      const out = `${res.stdout}${res.stderr}`;
+      assert(/leptos\/index\.html does not link/.test(out), `linker not named: ${out}`);
+    });
+    await test('npm run sync:css repairs the drift through the production script', () => {
+      // Restore the linker, then reintroduce drift and prove `--write` fixes it.
+      fs.writeFileSync(path.join(dir, 'implementations/leptos/index.html'),
+        '<link rel="stylesheet" href="../../shared/styles/todo.css">');
+      fs.appendFileSync(path.join(dir, 'implementations/vue/src/style.css'), '\n/* drift */\n');
+      const res = run('node', [path.join(DOCS, 'check-shared-stylesheet.js'), '--root', dir, '--write'], { timeout: 30000 });
+      assert(res.status === 0, `sync failed:\n${res.stdout}${res.stderr}`);
+      const copy = fs.readFileSync(path.join(dir, 'implementations/vue/src/style.css'));
+      assert(copy.equals(fs.readFileSync(path.join(dir, 'shared/styles/todo.css'))),
+        'sync did not make the copy byte-identical');
+    });
+  }
+  {
+    // The real repository's declared copies must all be present and identical;
+    // prove it by checking the actual bytes, not the checker's summary.
+    await test('every declared copy in the repository equals the shared stylesheet', () => {
+      const source = fs.readFileSync(path.join(ROOT, 'shared', 'styles', 'todo.css'));
+      for (const rel of [
+        'implementations/react/src/App.css',
+        'implementations/vue/src/style.css',
+        'implementations/angular/src/styles.css',
+        'implementations/blade/style.css',
+        'docs/tests/fixtures/fixture.css',
+      ]) {
+        assert(fs.readFileSync(path.join(ROOT, rel)).equals(source),
+          `${rel} is not byte-identical to shared/styles/todo.css`);
+      }
+    });
+  }
+
   // --- 9: console-error policy --------------------------------------------
   console.log('\nconsole-error policy');
   {
@@ -1038,6 +1261,94 @@ function pokePixel(file, x, y, channel, delta) {
       const up = await fetch(`http://127.0.0.1:${port}/`).then(() => true).catch(() => false);
       assert(!up, `port ${port} is still served after a failed startup`);
     });
+  }
+
+  // --- 19: failure cleanup must reap the whole group, not just the leader ---
+  console.log('\nstart-servers.sh failure cleanup (finding 19)');
+  {
+    // Reproduces the exact gap: the launcher records a verified state, then the
+    // leader exits on SIGTERM while a *child* ignores it and keeps the port. A
+    // leader-only `kill -0` check is false once the leader is gone, so the child
+    // would never receive SIGKILL and the port would stay held.
+    //
+    // The production path is `start-servers.sh --only blade`, which runs
+    // `php -S <port> ...` through serve.sh under setsid. A fake `php` stands in:
+    // it spawns a SIGTERM-ignoring child that binds the port but answers nothing
+    // (so readiness never succeeds) and then waits. The run fails into
+    // stop_started() with a live, TERM-ignoring child still in its group.
+    const OFFSET = 3000;                 // blade -> 7007, clear of the real ports
+    const port = 4007 + OFFSET;
+    const logsDir = tmpDir('cleanup-logs');
+    const bin = tmpDir('cleanup-bin');
+    const fakePhp = path.join(bin, 'php');
+    fs.writeFileSync(fakePhp, `#!/usr/bin/env bash
+# Child: ignores SIGTERM, holds the port, but never completes an HTTP response
+# (so readiness fails) -- exactly a server that traps SIGTERM and stays up.
+python3 -c '
+import signal, socket
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+s = socket.socket()
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(("127.0.0.1", ${port}))
+s.listen(5)
+while True:
+    c, _ = s.accept()
+    c.close()
+' &
+child=$!
+# Leader: exits on SIGTERM (default action). Wait so readiness times out first.
+trap 'exit 0' TERM
+wait "$child"
+`);
+    fs.chmodSync(fakePhp, 0o755);
+    const startScript = path.join(DOCS, 'scripts', 'start-servers.sh');
+    const stopScript = path.join(DOCS, 'scripts', 'stop-servers.sh');
+    try {
+      const res = run('bash',
+        [startScript, '--only', 'blade', '--port-offset', String(OFFSET), '--ready-timeout', '4'],
+        { env: { FB_LOGS_DIR: logsDir, PATH: `${bin}:${process.env.PATH}` }, timeout: 60000 });
+
+      await test('a failed startup exits non-zero when the port is never served by the leader', () => {
+        assert(res.status !== 0, `expected non-zero exit, got ${res.status}:\n${res.stdout}${res.stderr}`);
+      });
+      await test('failure cleanup leaves no live process in the group', async () => {
+        // The recorded state names the group; after cleanup nothing live may
+        // remain in it (a zombie leader is fine -- it is not a live process).
+        const stateFile = path.join(logsDir, 'blade.state');
+        let pgid = null;
+        if (fs.existsSync(stateFile)) {
+          const fields = parseState(stateFile);
+          pgid = Number(fields.pgid);
+        }
+        if (pgid) {
+          const deadline = Date.now() + 5000;
+          let live = liveGroupMembers(pgid);
+          while (Date.now() < deadline && live.length) {
+            await new Promise((r) => setTimeout(r, 200));
+            live = liveGroupMembers(pgid);
+          }
+          assert(live.length === 0, `live process(es) survived cleanup: ${live.join(', ')}`);
+        }
+      });
+      await test('the child that ignored SIGTERM is gone and its port is free', async () => {
+        const deadline = Date.now() + 8000;
+        let up = true;
+        while (Date.now() < deadline && up) {
+          up = await fetch(`http://127.0.0.1:${port}/`).then(() => true).catch(() => false);
+          if (up) await new Promise((r) => setTimeout(r, 200));
+        }
+        assert(!up, `port ${port} is still being served: a SIGTERM-ignoring child survived`);
+      });
+    } finally {
+      // Never leave the fake listener behind for the rest of the suite.
+      try {
+        const out = spawnSync('pgrep', ['-f', `TCPServer.*${port}`], { encoding: 'utf8' });
+        for (const pid of (out.stdout || '').trim().split('\n').filter(Boolean)) {
+          try { process.kill(Number(pid), 'SIGKILL'); } catch { /* gone */ }
+        }
+      } catch { /* pgrep unavailable */ }
+      run('bash', [stopScript], { env: { FB_LOGS_DIR: logsDir }, timeout: 30000 });
+    }
   }
 
   /**

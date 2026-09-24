@@ -225,13 +225,21 @@ npm run pixel               # 4. diff every state against the React reference
 npm run optimize            # 5. card-cropped JPEGs for this README
 npm run montage             # 6. side-by-side comparison montages
 npm run check:docs          # 7. documented npm commands name their working directory
-npm test                    # 8. regression tests for the tooling's failure modes
+npm run check:css           # 8. shared/styles/todo.css has not drifted in any copy
+npm test                    # 9. regression tests for the tooling's failure modes
 bash scripts/stop-servers.sh
 ```
 
 `parity` and `pixel` are separate gates: `parity` drives the live servers and
 compares DOM, geometry and state; `pixel` compares the saved captures. The
 pipeline runs `capture → verify → parity → pixel → optimize → montage`.
+
+`shared/styles/todo.css` is the single stylesheet: Leptos, Yew and Dioxus link it
+directly, and React, Vue, Angular and Blade keep a copy that `check:css` proves is
+byte-identical (run `npm run sync:css` after editing the source). The `pixel`
+checker validates each mask rectangle from the report before it becomes a NumPy
+slice — a non-finite coordinate, a non-positive width/height, or a rectangle that
+does not overlap the image fails instead of silently masking the wrong pixels.
 
 A full `capture` stamps a single `captureRunId` on all seven entries, and `verify`
 refuses to accept a set whose entries come from different runs — so "35 screenshots

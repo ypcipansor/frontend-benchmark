@@ -18,6 +18,7 @@ badge/footer masks cannot be trusted, so the checker refuses to guess.
 """
 import argparse
 import json
+import math
 import os
 import sys
 
@@ -117,16 +118,47 @@ def load_label_rects(path):
 
 
 def clamp_box(box, height, width):
-    """Validate a rectangle against the image and clamp its padding to the frame."""
-    x, y, w, h = (float(v) for v in box)
+    """Validate a rectangle against the image and clamp its padding to the frame.
+
+    The rectangle comes from a JSON report, so it is untrusted input that is
+    about to become a NumPy slice. Every rejection here exists because the naive
+    version silently masked the *wrong* pixels:
+
+    * a non-finite value (NaN/inf) makes the int() conversion raise or produce a
+      nonsense bound;
+    * a zero or negative width/height describes no area at all;
+    * a rectangle entirely left of or above the image yields a negative x1/y1 —
+      and NumPy reads a negative endpoint as an offset *from the end of the
+      array*, so the mask would land on unrelated pixels at the opposite edge;
+    * a rectangle entirely right of or below the image yields x0 >= width (an
+      empty slice), hiding a difference that should have been cleared.
+
+    Only a rectangle that genuinely overlaps the image is clamped, and the result
+    is always a valid, non-empty, in-bounds slice: 0 <= x0 < x1 <= width and
+    0 <= y0 < y1 <= height. A negative index is never handed to NumPy.
+    """
+    values = [float(v) for v in box]
+    if not all(math.isfinite(v) for v in values):
+        raise ReportError(f'non-finite rectangle {box!r}')
+    x, y, w, h = values
     if w <= 0 or h <= 0:
-        raise ReportError(f'degenerate rectangle {box}')
+        raise ReportError(f'degenerate rectangle {box!r} (width/height must be positive)')
+
+    # The rectangle must intersect the image at all: a box wholly off any edge is
+    # a report bug, not something to mask away.
+    if x + w <= 0 or y + h <= 0 or x >= width or y >= height:
+        raise ReportError(
+            f'rectangle {box!r} does not overlap the {width}x{height} screenshot')
+
     x0 = max(0, int(x) - 2)
     y0 = max(0, int(y) - 2)
-    x1 = min(width, int(x + w) + 2)
-    y1 = min(height, int(y + h) + 2)
-    if x0 >= width or y0 >= height:
-        raise ReportError(f'rectangle {box} lies outside the {width}x{height} screenshot')
+    x1 = min(width, int(math.ceil(x + w)) + 2)
+    y1 = min(height, int(math.ceil(y + h)) + 2)
+
+    if not (0 <= x0 < x1 <= width and 0 <= y0 < y1 <= height):
+        raise ReportError(
+            f'rectangle {box!r} produced an out-of-bounds slice '
+            f'({x0},{y0})-({x1},{y1}) for a {width}x{height} screenshot')
     return x0, y0, x1, y1
 
 

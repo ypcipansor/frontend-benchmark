@@ -43,6 +43,7 @@ Thank you for your interest in contributing to the Frontend Framework Benchmark 
 - [ ] Bundle size documented
 - [ ] `docs/parity-check.js` reports full parity
 - [ ] `docs/pixel-parity.py` reports full parity in every state
+- [ ] `docs/check-shared-stylesheet.js` reports no drift (`cd docs && npm run check:css`)
 - [ ] Screenshots captured and verified for all five states
 
 ### Verifying Your Implementation
@@ -126,7 +127,7 @@ If you're submitting benchmark results:
 - Document any framework-specific optimizations
 - Test on multiple browsers
 - Use production builds for measurements
-- Pass `docs/parity-check.js`, `docs/verify-screenshots.js` and `docs/pixel-parity.py` before opening a PR
+- Pass `docs/parity-check.js`, `docs/verify-screenshots.js`, `docs/pixel-parity.py` and `docs/check-shared-stylesheet.js` before opening a PR
 
 **DON'T:**
 - Add unnecessary external dependencies

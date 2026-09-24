@@ -31,6 +31,7 @@ proc_stat_field() {
   case "$which" in
     # after comm: state=1 ppid=2 pgrp=3 session=4 ... starttime=20
     pgrp)      echo "$rest" | awk '{print $3}' ;;
+    session)   echo "$rest" | awk '{print $4}' ;;
     starttime) echo "$rest" | awk '{print $20}' ;;
     state)     echo "$rest" | awk '{print $1}' ;;
     *)         return 1 ;;
@@ -150,6 +151,27 @@ verify_state() {
   # group leadership, which is what the checks above established.
   STATE_REASON="identity verified (pid $pid, pgid $pgid, starttime $stored_start)"
   return 0
+}
+
+# group_has_live_members <pgid>
+# True (exit 0) when at least one *live* process (state != Z) belongs to the
+# process group. `kill -0 -$pgid` is not enough: it still succeeds for a group
+# that holds only zombies, and it says nothing about a group whose leader has
+# exited while a child keeps running. Callers that must reap a whole tree need a
+# real membership test, so this walks /proc.
+group_has_live_members() {
+  local pgid="$1" d pid state pg
+  [ -n "$pgid" ] || return 1
+  for d in /proc/[0-9]*; do
+    [ -d "$d" ] || continue
+    pid="${d#/proc/}"
+    pg="$(proc_stat_field "$pid" pgrp)" || continue
+    [ "$pg" = "$pgid" ] || continue
+    state="$(proc_stat_field "$pid" state)" || continue
+    [ "$state" = "Z" ] && continue
+    return 0
+  done
+  return 1
 }
 
 # quarantine_state <file> <logdir>

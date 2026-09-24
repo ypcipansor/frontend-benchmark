@@ -44,7 +44,7 @@ The app implements the benchmark contract exactly:
 - **100 todos** on first render — `Todo item 1` … `Todo item 100`
 - **Every 3rd item completed** — items 3, 6, 9, …, 99 → **33 completed, 67 remaining**
 - Filters **All / Active / Completed**, plus add, toggle, toggle-all and delete
-- Styling comes from `src/App.css`, a copy of [`shared/styles/todo.css`](../../shared/styles/todo.css)
+- Styling comes from `src/App.css`, a byte-identical copy of [`shared/styles/todo.css`](../../shared/styles/todo.css). The copy is enforced: `cd docs && npm run check:css` fails if it drifts, and `npm run sync:css` resyncs it.
 
 The completion rule is the important detail for parity:
 
@@ -78,7 +78,7 @@ With that in place the card is the only flex child of `<body>` and renders at **
 |------|---------|
 | `src/App.jsx` | The Todo component — state, derived values and handlers |
 | `src/main.jsx` | React entry point |
-| `src/App.css` | Copy of the shared stylesheet |
+| `src/App.css` | Byte-identical copy of the shared stylesheet (checked by `npm run check:css`) |
 | `index.html` | Vite entry HTML, `<title>Todo List - React</title>` |
 
 ## Performance notes

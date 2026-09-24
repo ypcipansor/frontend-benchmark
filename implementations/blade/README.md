@@ -98,7 +98,7 @@ The client-side `render()` mirrors the server output exactly — it emits `<li c
 |------|---------|
 | `index.php` | Bootstraps Blade, builds the 100 todos, renders the view |
 | `views/index.blade.php` | The Blade template and client-side JavaScript |
-| `style.css` | Copy of the shared stylesheet |
+| `style.css` | Byte-identical copy of the shared stylesheet (checked by `npm run check:css`) |
 | `composer.json` | Composer manifest |
 | `cache/` | Blade compiled-view cache (gitignored) |
 

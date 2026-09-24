@@ -9,6 +9,8 @@
   "scripts": {
     "check:node": "node check-node-version.js",
     "check:docs": "node check-doc-commands.js",
+    "check:css": "node check-shared-stylesheet.js",
+    "sync:css": "node check-shared-stylesheet.js --write",
     "capture": "node screenshot.js --out screenshots",
     "capture:react": "node screenshot.js --framework react --out screenshots",
     "capture:vue": "node screenshot.js --framework vue --out screenshots",

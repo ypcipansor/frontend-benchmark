@@ -96,11 +96,15 @@ RUN_TOKEN="$(new_run_token)"
 
 want() { [ -z "$ONLY" ] || [ "$1" = "$ONLY" ]; }
 
-# PIDs launched by *this* run, so a partial failure stops only what we started.
-STARTED_PIDS=()
 # name -> pid launched this run, so wait_port can tell "our process died before
-# recording state" (a real failure) from "state not written yet" (keep polling).
+# recording state" (a real failure) from "state not written yet" (keep polling),
+# and stop_started can identify the process groups this run created.
 declare -A STARTED_PID_OF=()
+# name -> "<starttime> <session>" recorded at launch. setsid() runs *before* the
+# launcher execs serve.sh, so these are already final by the time `$!` is known;
+# they pin the fallback in stop_started to the exact process we spawned (a
+# recycled PID would have a different starttime and cannot be the session leader).
+declare -A STARTED_ID_OF=()
 
 start() {
   local name="$1"; shift
@@ -115,8 +119,8 @@ start() {
   setsid bash "$ROOT/docs/scripts/lib/serve.sh" "$LOGS/$name.state" "$RUN_TOKEN" "$@" \
     >"$LOGS/$name.log" 2>&1 &
   local pid=$!
-  STARTED_PIDS+=("$pid")
   STARTED_PID_OF["$name"]="$pid"
+  STARTED_ID_OF["$name"]="$(proc_stat_field "$pid" starttime) $(proc_stat_field "$pid" session)"
 }
 
 # A state file written by an *earlier* run (whose process is gone) must never be
@@ -229,15 +233,62 @@ if want dioxus; then
 fi
 
 # Stop everything this run launched, so a failure never leaves partial servers.
+#
+# Only a process group this run can *prove* it started is signalled: either the
+# recorded state file still verifies against live /proc and carries this run's
+# token, or the launcher we spawned is still the leader of its own new session.
+# A recycled PID or a foreign group therefore can never be hit (the same safety
+# model stop-servers.sh uses).
+#
+# Escalation deliberately tests the whole *group*, not `kill -0 <leader>`. If the
+# leader exits after SIGTERM while a child ignores it (npm -> vite/ng), the leader
+# is gone but the child survives holding the port; a leader-only liveness check
+# would be false and the child would never receive SIGKILL. Membership is re-read
+# from /proc, so the child is still reaped.
 stop_started() {
-  local pid
-  for pid in "${STARTED_PIDS[@]:-}"; do
+  local name pid state pgid recorded_start recorded_session live_start live_session
+  local -a targets=()
+  for name in $FRAMEWORKS; do
+    want "$name" || continue
+    pid="${STARTED_PID_OF[$name]:-}"
     [ -n "$pid" ] || continue
-    kill -TERM "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null
+    state="$LOGS/$name.state"
+    pgid=""
+    if verify_state "$state" && [ "$(state_get "$state" run_token)" = "$RUN_TOKEN" ]; then
+      pgid="$STATE_PID"
+    else
+      # No verified state yet. Fall back to the process we spawned, but only if it
+      # is still *exactly* that process: same starttime, still leading its own
+      # session (setsid gave it a fresh session id == its pid). A recycled PID
+      # fails both, so we never signal a foreign group.
+      recorded_start="${STARTED_ID_OF[$name]%% *}"
+      recorded_session="${STARTED_ID_OF[$name]##* }"
+      live_start="$(proc_stat_field "$pid" starttime)"
+      live_session="$(proc_stat_field "$pid" session)"
+      if [ -n "$recorded_start" ] && [ "$live_start" = "$recorded_start" ] \
+         && [ "$live_session" = "$recorded_session" ] && [ "$live_session" = "$pid" ]; then
+        pgid="$pid"
+      fi
+    fi
+    [ -n "$pgid" ] || continue
+    targets+=("$pgid")
   done
-  for pid in "${STARTED_PIDS[@]:-}"; do
-    [ -n "$pid" ] || continue
-    kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null
+
+  for pgid in "${targets[@]:-}"; do
+    [ -n "$pgid" ] || continue
+    kill -TERM -- "-$pgid" 2>/dev/null || kill -TERM "$pgid" 2>/dev/null
+  done
+
+  for pgid in "${targets[@]:-}"; do
+    [ -n "$pgid" ] || continue
+    local waited=0
+    while [ "$waited" -lt 20 ] && group_has_live_members "$pgid"; do
+      sleep 0.25
+      waited=$((waited + 1))
+    done
+    if group_has_live_members "$pgid"; then
+      kill -KILL -- "-$pgid" 2>/dev/null || kill -KILL "$pgid" 2>/dev/null
+    fi
   done
 }
 

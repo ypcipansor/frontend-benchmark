@@ -134,7 +134,13 @@ npm run capture     # capture all five UI states (fails non-zero on any error)
 npm run verify      # reject blank, white, mis-sized or incomplete screenshots
 npm run parity      # assert identical DOM, geometry, content and stats
 npm run pixel       # pixel-diff every state against the reference
+npm run check:css   # prove every copy of shared/styles/todo.css is byte-identical
 ```
 
 `npm run pixel` is the strictest gate: it fails on any pixel difference outside
 the header badge and the footer, where the framework name legitimately differs.
+
+`npm run check:css` backs the "single shared stylesheet" claim: Leptos, Yew and
+Dioxus link `shared/styles/todo.css` directly, while React, Vue, Angular and Blade
+keep a copy that must match it byte-for-byte. `npm run sync:css` rewrites the
+copies from the source after editing it.
