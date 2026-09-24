@@ -19,6 +19,7 @@ const { execSync } = require('child_process');
 
 const RESULTS_DIR = path.join(__dirname, '../results');
 if (!fs.existsSync(RESULTS_DIR)) fs.mkdirSync(RESULTS_DIR, { recursive: true });
+const { readRunId, resolveRunId } = require('./provenance');
 
 const sh = (cmd) => {
   try { return execSync(cmd, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); }
@@ -61,13 +62,13 @@ const repo = process.env.GITHUB_REPOSITORY;
 const runId = process.env.GITHUB_RUN_ID;
 const inferredRunUrl = (serverUrl && repo && runId) ? `${serverUrl}/${repo}/actions/runs/${runId}` : null;
 
-// Link this capture to the benchmark run it describes, so a later consumer can
-// detect metadata left over from a previous run.
-const provenancePath = path.join(RESULTS_DIR, 'run-provenance.json');
-let benchmarkRunId = null;
-try {
-  benchmarkRunId = JSON.parse(fs.readFileSync(provenancePath, 'utf-8')).runId || null;
-} catch (e) { /* no provenance: caller captured standalone */ }
+// Link this capture to the benchmark run it describes. In CI the benchmark
+// steps share GITHUB_RUN_ID, so the provenance file (written by the stress or
+// comprehensive script) resolves to the same id. A manual run that captured an
+// environment only gets the id it would itself stamp, which will not match a
+// differently-stamped measurement set — that mismatch is reported as uncaptured
+// rather than attributing one machine's specs to another's numbers.
+const benchmarkRunId = readRunId(RESULTS_DIR) || resolveRunId();
 
 const env = {
   runner: {

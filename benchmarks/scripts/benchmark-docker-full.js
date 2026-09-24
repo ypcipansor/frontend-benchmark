@@ -18,11 +18,16 @@ const chromeLauncher = require('chrome-launcher');
 
 const RESULTS_DIR = path.join(__dirname, '../results');
 const ROOT_DIR = path.join(__dirname, '../..');
+const { stampRun } = require('./provenance');
 
 // Ensure results directory exists
 if (!fs.existsSync(RESULTS_DIR)) {
   fs.mkdirSync(RESULTS_DIR, { recursive: true });
 }
+
+// Id stamped on every result this process emits, so the README can tell which
+// measurements belong to the environment metadata it is about to render.
+const RUN_ID = stampRun(RESULTS_DIR, 'comprehensive');
 
 const frameworks = [
   { name: 'react', port: 3001, service: 'react', type: 'javascript' },
@@ -396,6 +401,8 @@ async function benchmarkFramework(framework) {
       framework: framework.name, 
       type: framework.type,
       error: 'Failed to build/start container',
+      timestamp: new Date().toISOString(),
+      runId: RUN_ID,
       buildTime: Math.round((Date.now() - startTime) / 1000)
     };
   }
@@ -415,6 +422,8 @@ async function benchmarkFramework(framework) {
       framework: framework.name, 
       type: framework.type,
       error: 'Server failed to start',
+      timestamp: new Date().toISOString(),
+      runId: RUN_ID,
       buildTime
     };
   }
@@ -439,6 +448,7 @@ async function benchmarkFramework(framework) {
   return {
     framework: framework.name,
     type: framework.type,
+    runId: RUN_ID,
     buildTime,
     totalTime,
     containerStats,
@@ -461,15 +471,6 @@ async function main() {
   console.log('\n' + '='.repeat(80));
   
   const startTime = Date.now();
-
-  // Stamp this run so the README updater can reject environment.json left over
-  // from a previous run in a reused results directory. Without this, a manual
-  // run that skips `capture-env` would attribute its measurements to the older
-  // run's machine and workflow URL.
-  fs.writeFileSync(
-    path.join(RESULTS_DIR, 'run-provenance.json'),
-    JSON.stringify({ runId: `${startTime}-${process.pid}`, startedAt: new Date(startTime).toISOString() }, null, 2)
-  );
 
   const results = [];
   

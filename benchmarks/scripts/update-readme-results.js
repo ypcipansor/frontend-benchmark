@@ -9,7 +9,7 @@
  *
  * Data schema:
  *   results[] = {
- *     framework, type,
+ *     framework, type, runId,
  *     performanceScore, metrics: { firstContentfulPaint, largestContentfulPaint, timeToInteractive, ... },
  *     totalGzipped, totalJS, totalCSS, totalWASM, totalHTML,
  *     containerStats: { cpu: {average,max}, memory: {averageMB,maxMB} },
@@ -24,6 +24,7 @@ const path = require('path');
 
 const RESULTS_DIR = path.join(__dirname, '../results');
 const README_FILE = path.join(__dirname, '../../README.md');
+const { readRunId } = require('./provenance');
 
 function formatBytes(bytes) {
   if (bytes === undefined || bytes === null) return 'N/A';
@@ -82,18 +83,31 @@ function displayName(framework) {
   return framework.charAt(0).toUpperCase() + framework.slice(1);
 }
 
+// Collect the run ids stamped on the measurements we are about to publish.
+// A framework result may carry its own id plus, for a merged standalone stress
+// run, a separate id on `result.stress`.
+function measurementRunIds(results) {
+  const ids = new Set();
+  for (const r of results || []) {
+    if (r && r.runId) ids.add(r.runId);
+    if (r && r.stress && r.stress.runId) ids.add(r.stress.runId);
+  }
+  return ids;
+}
+
 // Optional environment metadata captured by CI (runner specs, browser, Docker,
 // load tool, workflow run). Written to benchmarks/results/environment.json.
 //
-// environment.json and the benchmark measurements live in separate gitignored
-// files, so a manual run that reuses a results directory without re-running
-// capture-env would otherwise publish the PREVIOUS run's machine and workflow
-// URL next to this run's numbers. To prevent that, metadata is only accepted
-// when it provably belongs to the current results:
-//   - both files carry a `benchmarkRunId` (from run-provenance.json) and they
-//     match, or
-//   - environment.json was generated no earlier than the newest measurement.
-// Anything else is treated as absent (renders "_not captured_").
+// environment.json is a sidecar: nothing structurally ties it to the numbers in
+// the other result files, and the results directory is reused across runs. So
+// metadata is accepted only when it provably belongs to every measurement about
+// to be rendered:
+//   - every displayed measurement carries a run id and they all match the
+//     environment's `benchmarkRunId`, or
+//   - legacy measurements carry no run id at all, no provenance/environment id
+//     exists, and valid timestamps show the capture is not older than them.
+// A report mixing measurements from different runs cannot be described by one
+// sidecar environment, so it is reported as uncaptured.
 function readEnvironment(results) {
   const envPath = path.join(RESULTS_DIR, 'environment.json');
   if (!fs.existsSync(envPath)) return null;
@@ -104,24 +118,41 @@ function readEnvironment(results) {
     return null;
   }
 
-  const provenancePath = path.join(RESULTS_DIR, 'run-provenance.json');
-  let currentRunId = null;
-  try {
-    currentRunId = JSON.parse(fs.readFileSync(provenancePath, 'utf-8')).runId || null;
-  } catch (e) { /* no provenance file */ }
+  const currentRunId = readRunId(RESULTS_DIR);
+  const ids = measurementRunIds(results);
 
-  if (currentRunId || env.benchmarkRunId) {
-    // Fresh runs stamp provenance; require an exact association.
-    return (currentRunId && env.benchmarkRunId === currentRunId) ? env : null;
+  if (ids.size > 0) {
+    // Measurements are stamped: require an exact association with the env.
+    if (env.benchmarkRunId && [...ids].every(id => id === env.benchmarkRunId)) {
+      return env;
+    }
+    if (ids.size > 1) {
+      console.warn('Results mix measurements from multiple runs; environment metadata is not attributable.');
+    } else {
+      console.warn('environment.json does not match the run id stamped on the results; treating it as stale.');
+    }
+    return null;
   }
 
-  // Legacy path (no provenance file): fall back to a timestamp sanity check.
+  // Measurements carry no run id. If any provenance or environment id exists,
+  // the association cannot be proven, so refuse rather than guess.
+  if (currentRunId || env.benchmarkRunId) {
+    console.warn('environment.json cannot be associated: results carry no run provenance.');
+    return null;
+  }
+
+  // Legacy path: timestamps must positively establish that the capture belongs
+  // to these results. With no valid timestamps there is no evidence, so refuse.
   const newest = (results || [])
     .map(r => Date.parse(r.timestamp))
     .filter(t => !isNaN(t))
     .reduce((a, b) => Math.max(a, b), 0);
   const captured = Date.parse(env.generatedAt);
-  if (newest && !isNaN(captured) && captured < newest) {
+  if (!newest) {
+    console.warn('environment.json cannot be associated: results have no valid timestamps.');
+    return null;
+  }
+  if (!isNaN(captured) && captured < newest) {
     console.warn('environment.json predates the benchmark results; treating it as stale.');
     return null;
   }
@@ -153,7 +184,7 @@ function extractPreviousLighthouse(readme) {
 // manual `npm run update-readme`), fields are reported as "not captured" rather
 // than substituting specs from an unrelated run — publishing invented hardware
 // would corrupt cross-run comparisons.
-function renderTestEnvironment(env) {
+function renderTestEnvironment(env, results) {
   const runner = (env && env.runner) || {};
   const unknown = '_not captured_';
   const rows = [
@@ -170,6 +201,11 @@ function renderTestEnvironment(env) {
   let md = '### Test Environment\n\n';
   md += '| Item | Value |\n|------|-------|\n';
   rows.forEach(([k, v]) => { md += `| ${k} | ${v || unknown} |\n`; });
+
+  if (!env && measurementRunIds(results).size > 1) {
+    md += '\n> Metrics above were merged from **more than one run**, so a single environment cannot describe them all. ';
+    md += 'See each run\'s workflow artifact for its own runner details.\n';
+  }
 
   const retention = (env && env.artifactRetentionDays) || 90;
   md += `\n> Raw results (` + '`benchmarks/results/*.json`' + `) are gitignored; they are uploaded as a ${retention}-day workflow artifact.`;
@@ -216,11 +252,20 @@ function generateBenchmarkSection(results, previousReadme) {
   // (cpuSamples/memorySamples). Samples without them came from the older
   // harness, whose fixed-iteration loop folded idle readings into the
   // under-load window, so their throughput is not a valid baseline.
-  const stressSamples = results.flatMap(r => (r.stress && r.stress.samples) || []);
-  const preFixHarness = stressSamples.length > 0 &&
-    !stressSamples.some(s => s.containerStats && typeof s.containerStats.cpuSamples === 'number');
+  //
+  // Check every sample that actually contributes a displayed throughput figure
+  // (peak > 0), not the whole set: a report may merge a fresh run with an older
+  // one, and errored samples with no measurement are not shown.
+  const displayedSamples = summaryList
+    .filter(item => item.peak > 0 && item.sample)
+    .map(item => item.sample);
+  const preFixHarness = displayedSamples.some(s =>
+    !s.containerStats || typeof s.containerStats.cpuSamples !== 'number');
   if (preFixHarness) {
-    md += '> 🧪 **Harness version:** The stress-test figures below were collected **before the sampler fix** (the old fixed-iteration loop mixed idle readings into the load window). They are kept for continuity only and are **not a valid baseline** — a fresh run is required before comparing throughput against them.\n\n';
+    const allPreFix = displayedSamples.every(s =>
+      !s.containerStats || typeof s.containerStats.cpuSamples !== 'number');
+    const subject = allPreFix ? 'The stress-test figures below were' : 'Some stress-test figures below were';
+    md += `> 🧪 **Harness version:** ${subject} collected **before the sampler fix** (the old fixed-iteration loop mixed idle readings into the load window). They are kept for continuity only and are **not a valid baseline** — a fresh run is required before comparing throughput against them.\n\n`;
   }
 
   // ----- Quick Highlights -----
@@ -386,7 +431,7 @@ function generateBenchmarkSection(results, previousReadme) {
   }
 
   // ----- Test Environment -----
-  md += renderTestEnvironment(readEnvironment(results)) + '\n';
+  md += renderTestEnvironment(readEnvironment(results), results) + '\n';
 
   md += '---\n\n';
   md += '### Testing Methodology\n\n';

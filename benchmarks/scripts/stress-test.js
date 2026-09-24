@@ -15,6 +15,14 @@ const path = require('path');
 const ROOT_DIR = path.join(__dirname, '../..');
 const RESULTS_DIR = path.join(__dirname, '../results');
 if (!fs.existsSync(RESULTS_DIR)) fs.mkdirSync(RESULTS_DIR, { recursive: true });
+const { stampRun } = require('./provenance');
+
+// A standalone stress run is its own run: it stamps fresh provenance and its
+// results carry this id. When the comprehensive benchmark in the same CI run
+// attaches those results, both share `GITHUB_RUN_ID`, so the environment still
+// matches; a manual standalone run gets a distinct id and is treated as a
+// different environment.
+const RUN_ID = stampRun(RESULTS_DIR, 'stress');
 
 const frameworks = [
   { name: 'react', port: 3001, service: 'react', url: 'http://localhost:3001' },
@@ -196,7 +204,7 @@ async function runStressTest() {
     }
 
     // Run tests for multiple concurrencies
-    const fwResult = { framework: f.name, url: f.url, samples: [] };
+    const fwResult = { framework: f.name, url: f.url, runId: RUN_ID, samples: [] };
 
     for (const c of concurrencies) {
       console.log(`\n   🔫 Running autocannon: ${c} connections for ${durationSeconds}s`);
