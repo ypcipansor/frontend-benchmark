@@ -77,7 +77,7 @@ all-basic-checks-passed → Summary
 
 **Build Process:**
 ```yaml
-- Setup Node.js 20
+- Setup Node.js 24
 - npm install
 - npm run build
 - Verify dist/ exists
@@ -329,7 +329,7 @@ Configure in repository settings:
 
 **Node.js version:**
 ```yaml
-node-version: '20'  # Update as needed
+node-version: '24'  # Update as needed
 ```
 
 **Rust version:**
