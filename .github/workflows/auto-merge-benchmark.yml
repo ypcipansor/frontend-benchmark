@@ -2,13 +2,25 @@ name: Auto-merge benchmark results PRs
 
 # Whenever a check suite completes, squash-merge any open "Update Benchmark Results"
 # PR authored by github-actions[bot] whose check runs are all green (success/skipped).
+#
+# check_suite alone is not enough. GitHub's recursion guard does not send
+# check_suite events for suites created by GitHub Actions, so the results PR's
+# own CI (dispatched with GITHUB_TOKEN) never wakes this job — only third-party
+# suites like CodeQL would, and those can finish before the CI is green. Listen
+# on workflow_run for the pull-request CI workflows instead: it fires whenever
+# they complete regardless of what triggered them, guaranteeing a merge
+# evaluation after the dispatched checks land on the PR head.
 on:
+  workflow_run:
+    workflows: ["Basic Checks", "Frontend Benchmark CI"]
+    types: [completed]
   check_suite:
     types: [completed]
 
 permissions:
   contents: write
   pull-requests: write
+  actions: read
 
 jobs:
   auto-merge:
@@ -21,6 +33,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SELF_NAME: Auto-merge benchmark PRs
+          # Both workflows the comprehensive benchmark dispatches for a results
+          # PR. The merge must not proceed unless both actually ran and passed;
+          # otherwise a failed second dispatch would still merge on the first
+          # workflow's green checks.
+          REQUIRED_WORKFLOWS: '["Basic Checks","Frontend Benchmark CI"]'
         run: |
           set -e
 
@@ -42,12 +59,29 @@ jobs:
             verdict=$(echo "$checks" | jq \
               '[.check_runs[] | select(.name != env.SELF_NAME)] | (length > 0) and all(.conclusion == "success" or .conclusion == "skipped")')
 
-            if [ "$verdict" = "true" ]; then
-              echo "PR #$num: all checks green -> squash-merging"
-              curl -s -X PUT -H "Authorization: Bearer $GH_TOKEN" \
-                "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pulls/$num/merge" \
-                -d '{"merge_method":"squash"}' | jq -r '.message // "merged"'
-            else
+            if [ "$verdict" != "true" ]; then
               echo "PR #$num: checks not all green; skipping."
+              continue
             fi
+
+            # Require every dispatched workflow to have a successful completed
+            # run on this exact head SHA. A nonempty all-green check list is not
+            # enough: if one workflow never ran, its check runs are simply
+            # absent, so the list could still be green.
+            runs=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+              "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$sha&per_page=100")
+            workflows_ok=$(echo "$runs" | jq --argjson required "$REQUIRED_WORKFLOWS" \
+              '[ $required[] as $name
+                 | (.workflow_runs | map(select(.name == $name and .status == "completed" and .conclusion == "success")) | length > 0) ]
+               | all')
+
+            if [ "$workflows_ok" != "true" ]; then
+              echo "PR #$num: not all required workflows ($REQUIRED_WORKFLOWS) completed successfully; skipping."
+              continue
+            fi
+
+            echo "PR #$num: all checks green and required workflows passed -> squash-merging"
+            curl -s -X PUT -H "Authorization: Bearer $GH_TOKEN" \
+              "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pulls/$num/merge" \
+              -d '{"merge_method":"squash"}' | jq -r '.message // "merged"'
           done <<< "$prs"
