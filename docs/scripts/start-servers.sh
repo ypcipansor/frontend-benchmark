@@ -1,0 +1,367 @@
+#!/usr/bin/env bash
+# Start the seven benchmark implementations on their fixed ports and wait until
+# each one answers. Used by CI and by anyone running the parity gate locally.
+#
+# Every server logs to docs/logs/<framework>.log; an atomic state file recording
+# its PID, process-group id, /proc starttime and a per-run token is written to
+# docs/logs/<framework>.state. stop-servers.sh uses that identity to terminate
+# exactly the processes this run started -- never a broad pkill, and never a
+# recycled PID that now belongs to something else.
+#
+# A port that is already in use is a hard error: the script refuses to start so a
+# pre-existing (possibly stale) server can never be mistaken for the one it just
+# launched. It never kills a foreign process. If any server fails, everything
+# this run already started is stopped before exiting.
+#
+# Usage: bash docs/scripts/start-servers.sh [--ready-timeout 120] [--only <fw>]
+#                                            [--port-offset N]
+set -u
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=lib/procstate.sh
+. "$ROOT/docs/scripts/lib/procstate.sh"
+LOGS="${FB_LOGS_DIR:-$ROOT/docs/logs}"
+READY_TIMEOUT=120
+ONLY=""
+PORT_OFFSET=0
+
+FRAMEWORKS="react vue angular leptos yew dioxus blade"
+
+usage() {
+  echo "usage: start-servers.sh [--ready-timeout <seconds>] [--only <framework>]" >&2
+  echo "                        [--port-offset <n>]" >&2
+  echo "  --only must be one of: $FRAMEWORKS" >&2
+}
+
+# Reject a value that is empty or not a plain non-negative integer. Without this
+# an arg like `--port-offset abc` reaches arithmetic expansion and produces a
+# confusing shell error (or worse, a silently wrong port).
+require_uint() {
+  local flag="$1" value="$2" max="${3:-}"
+  if [ -z "$value" ]; then
+    echo "start-servers.sh: $flag requires a value" >&2
+    usage; exit 2
+  fi
+  case "$value" in
+    ''|*[!0-9]*)
+      echo "start-servers.sh: $flag expects a non-negative integer, got '$value'" >&2
+      exit 2 ;;
+  esac
+  if [ -n "$max" ] && [ "$value" -gt "$max" ]; then
+    echo "start-servers.sh: $flag expects a value <= $max, got '$value'" >&2
+    exit 2
+  fi
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --ready-timeout)
+      shift
+      require_uint "--ready-timeout" "${1:-}"
+      READY_TIMEOUT="$1"; shift ;;
+    --only)
+      shift
+      ONLY="${1:-}"
+      if [ -z "$ONLY" ]; then
+        echo "start-servers.sh: --only requires a framework name" >&2
+        usage; exit 2
+      fi
+      case " $FRAMEWORKS " in
+        *" $ONLY "*) ;;
+        *) echo "start-servers.sh: unknown --only target '$ONLY'" >&2
+           usage; exit 2 ;;
+      esac
+      shift ;;
+    --port-offset)
+      shift
+      require_uint "--port-offset" "${1:-}" 10000
+      PORT_OFFSET="$1"; shift ;;
+    *) echo "start-servers.sh: unknown argument $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+# Ports are data so --port-offset can shift them (used by the regression tests to
+# exercise the stale-port guard without touching the real benchmark ports).
+PORT_REACT=$((4001 + PORT_OFFSET))
+PORT_VUE=$((4002 + PORT_OFFSET))
+PORT_ANGULAR=$((4003 + PORT_OFFSET))
+PORT_LEPTOS=$((4004 + PORT_OFFSET))
+PORT_YEW=$((4005 + PORT_OFFSET))
+PORT_DIOXUS=$((4006 + PORT_OFFSET))
+PORT_BLADE=$((4007 + PORT_OFFSET))
+
+mkdir -p "$LOGS"
+FAILED=0
+RUN_TOKEN="$(new_run_token)"
+
+want() { [ -z "$ONLY" ] || [ "$1" = "$ONLY" ]; }
+
+# name -> pid launched this run, so wait_port can tell "our process died before
+# recording state" (a real failure) from "state not written yet" (keep polling),
+# and stop_started can identify the process groups this run created.
+declare -A STARTED_PID_OF=()
+# name -> "<starttime> <session>" recorded at launch. setsid() runs *before* the
+# launcher execs serve.sh, so these are already final by the time `$!` is known;
+# they pin the fallback in stop_started to the exact process we spawned (a
+# recycled PID would have a different starttime and cannot be the session leader).
+declare -A STARTED_ID_OF=()
+
+start() {
+  local name="$1"; shift
+  if ! want "$name"; then return; fi
+  echo "starting $name ..."
+  # Run each server in its own session (setsid) via serve.sh, which records the
+  # state file from *inside* the new session and then `exec`s the server. Doing
+  # the write in the child removes the race where the parent reads /proc/<pid>
+  # before setsid() has run and records the launcher's group instead. The
+  # recorded pid is a process-group leader, so stop-servers.sh can terminate the
+  # whole tree with `kill -TERM -$pid` and no vite/ng child is orphaned.
+  setsid bash "$ROOT/docs/scripts/lib/serve.sh" "$LOGS/$name.state" "$RUN_TOKEN" "$@" \
+    >"$LOGS/$name.log" 2>&1 &
+  local pid=$!
+  STARTED_PID_OF["$name"]="$pid"
+  STARTED_ID_OF["$name"]="$(proc_stat_field "$pid" starttime) $(proc_stat_field "$pid" session)"
+}
+
+# A state file written by an *earlier* run (whose process is gone) must never be
+# read as this run's identity: wait_port would see the old PID, notice it is
+# dead and abort a startup that is actually fine. Quarantine such records before
+# launching anything (quarantine, not delete, so the stale record stays
+# inspectable). A state file whose process is still alive and verified is left
+# alone -- it may belong to a server on a different port that this run did not
+# target (only a port collision, caught by the preflight, is fatal).
+quarantine_stale_states() {
+  local name stale
+  for name in $FRAMEWORKS; do
+    want "$name" || continue
+    stale="$LOGS/$name.state"
+    [ -e "$stale" ] || continue
+    # A record is only left in place when its process is alive and verified
+    # (return 0). Anything else -- dead leader with an empty group, a recycled
+    # PID, a foreign group -- is stale, so it is quarantined and never read as
+    # this run's identity.
+    if verify_state "$stale"; then
+      echo "start-servers.sh: leaving $name.state in place ($STATE_REASON)" >&2
+    else
+      echo "start-servers.sh: quarantining stale $name.state: $STATE_REASON" >&2
+      quarantine_state "$stale" "$LOGS"
+    fi
+  done
+}
+
+# True when something already accepts TCP connections on the port. Uses bash's
+# /dev/tcp so no extra tool (lsof, nc) is required on the CI runner.
+port_in_use() {
+  local port="$1"
+  (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null || return 1
+  exec 3<&-
+  exec 3>&-
+  return 0
+}
+
+state_pid_for() { state_get "$LOGS/$1.state" pid; }
+
+# Preflight: refuse to start when a target port is already taken. This is what
+# prevents a stale server from being reported as freshly ready. It runs before
+# anything is launched, so a bad port set leaves the machine untouched.
+declare -A PORT_OF=(
+  [react]="$PORT_REACT" [vue]="$PORT_VUE" [angular]="$PORT_ANGULAR"
+  [leptos]="$PORT_LEPTOS" [yew]="$PORT_YEW" [dioxus]="$PORT_DIOXUS"
+  [blade]="$PORT_BLADE"
+)
+for name in $FRAMEWORKS; do
+  want "$name" || continue
+  port="${PORT_OF[$name]}"
+  if port_in_use "$port"; then
+    echo "start-servers.sh: port $port for $name is already in use;" \
+         "refusing to start (a stale server must not be mistaken for this run)" >&2
+    FAILED=1
+  fi
+done # (preflight)
+
+if [ "$FAILED" -ne 0 ]; then
+  echo "start-servers.sh: preflight failed; no servers were started" >&2
+  exit 1
+fi
+
+# Clear stale state records (dead PIDs / old run tokens) before launching, so
+# wait_port can never mistake an earlier run's file for this run's identity.
+quarantine_stale_states
+
+# --- JavaScript frameworks: Vite dev servers ------------------------------
+if want react; then
+  start react npm --prefix "$ROOT/implementations/react" run dev -- \
+    --port "$PORT_REACT" --host 127.0.0.1 --strictPort
+fi
+if want vue; then
+  start vue npm --prefix "$ROOT/implementations/vue" run dev -- \
+    --port "$PORT_VUE" --host 127.0.0.1 --strictPort
+fi
+if want angular; then
+  start angular npm --prefix "$ROOT/implementations/angular" start -- \
+    --port "$PORT_ANGULAR" --host 127.0.0.1
+fi
+
+# --- Blade: PHP built-in server -------------------------------------------
+if want blade; then
+  start blade php -S "127.0.0.1:$PORT_BLADE" -t "$ROOT/implementations/blade"
+fi
+
+# --- Rust frameworks: static dist built by trunk ---------------------------
+# The dists reference ../../shared/styles/todo.css; mirror it inside each dist so
+# the relative path resolves when the dist is served directly. Doing it here (not
+# only in CI) keeps a local run reproducible after `trunk build` wipes dist/.
+mirror_shared() {
+  local name="$1"
+  want "$name" || return 0
+  local dist="$ROOT/implementations/$name/dist"
+  [ -d "$dist" ] || return 0
+  mkdir -p "$dist/shared/styles"
+  cp "$ROOT/shared/styles/todo.css" "$dist/shared/styles/"
+}
+
+if want leptos; then
+  mirror_shared leptos
+  start leptos python3 -m http.server "$PORT_LEPTOS" --bind 127.0.0.1 \
+    --directory "$ROOT/implementations/leptos/dist"
+fi
+if want yew; then
+  mirror_shared yew
+  start yew python3 -m http.server "$PORT_YEW" --bind 127.0.0.1 \
+    --directory "$ROOT/implementations/yew/dist"
+fi
+if want dioxus; then
+  mirror_shared dioxus
+  start dioxus python3 -m http.server "$PORT_DIOXUS" --bind 127.0.0.1 \
+    --directory "$ROOT/implementations/dioxus/dist"
+fi
+
+# Stop everything this run launched, so a failure never leaves partial servers.
+#
+# Only a process group this run can *prove* it started is signalled: either the
+# recorded state file still verifies against live /proc and carries this run's
+# token, or the launcher we spawned is still the leader of its own new session.
+# A recycled PID or a foreign group therefore can never be hit (the same safety
+# model stop-servers.sh uses).
+#
+# Escalation deliberately tests the whole *group*, not `kill -0 <leader>`. If the
+# leader exits after SIGTERM while a child ignores it (npm -> vite/ng), the leader
+# is gone but the child survives holding the port; a leader-only liveness check
+# would be false and the child would never receive SIGKILL. Membership is re-read
+# from /proc, so the child is still reaped.
+stop_started() {
+  local name pid state pgid recorded_start recorded_session live_start live_session
+  local -a targets=()
+  for name in $FRAMEWORKS; do
+    want "$name" || continue
+    pid="${STARTED_PID_OF[$name]:-}"
+    [ -n "$pid" ] || continue
+    state="$LOGS/$name.state"
+    pgid=""
+    if verify_state "$state" && [ "$(state_get "$state" run_token)" = "$RUN_TOKEN" ]; then
+      pgid="$STATE_PID"
+    else
+      # No verified state yet. Fall back to the process we spawned, but only if it
+      # is still *exactly* that process: same starttime, still leading its own
+      # session (setsid gave it a fresh session id == its pid). A recycled PID
+      # fails both, so we never signal a foreign group.
+      recorded_start="${STARTED_ID_OF[$name]%% *}"
+      recorded_session="${STARTED_ID_OF[$name]##* }"
+      live_start="$(proc_stat_field "$pid" starttime)"
+      live_session="$(proc_stat_field "$pid" session)"
+      if [ -n "$recorded_start" ] && [ "$live_start" = "$recorded_start" ] \
+         && [ "$live_session" = "$recorded_session" ] && [ "$live_session" = "$pid" ]; then
+        pgid="$pid"
+      fi
+    fi
+    [ -n "$pgid" ] || continue
+    targets+=("$pgid")
+  done
+
+  for pgid in "${targets[@]:-}"; do
+    [ -n "$pgid" ] || continue
+    kill -TERM -- "-$pgid" 2>/dev/null || kill -TERM "$pgid" 2>/dev/null
+  done
+
+  for pgid in "${targets[@]:-}"; do
+    [ -n "$pgid" ] || continue
+    local waited=0
+    while [ "$waited" -lt 20 ] && group_has_live_members "$pgid"; do
+      sleep 0.25
+      waited=$((waited + 1))
+    done
+    if group_has_live_members "$pgid"; then
+      kill -KILL -- "-$pgid" 2>/dev/null || kill -KILL "$pgid" 2>/dev/null
+    fi
+  done
+}
+
+wait_port() {
+  local name="$1" port="$2"
+  if ! want "$name"; then return; fi
+  # serve.sh writes the state file from inside the new session, just after
+  # setsid forks, so it may not exist yet on the first read. Poll for a *valid*
+  # state until the deadline instead of failing on the very first probe.
+  #
+  # "Valid" means the state is this run's -- its run_token equals RUN_TOKEN and
+  # its recorded identity verifies against live /proc (still alive, not a
+  # recycled PID, still the group leader). A stale state file left by an earlier
+  # run -- any earlier token, dead PID included -- is *not* replaced, so it must
+  # never be treated as a final failure: keep polling until the deadline. Only a
+  # process this run actually launched that exits before recording a valid state
+  # aborts immediately.
+  local deadline=$(( $(date +%s) + READY_TIMEOUT ))
+  local live="${STARTED_PID_OF[$name]:-}"
+  local state="$LOGS/$name.state"
+  local reason="state file not written yet"
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    if verify_state "$state" \
+       && [ "$(state_get "$state" run_token)" = "$RUN_TOKEN" ]; then
+      # The state is ours and the recorded process identity is live. Require the
+      # process that serves this port to still be that PID before trusting an
+      # HTTP response: otherwise the response could come from a foreign server.
+      local pid="$STATE_PID"
+      while [ "$(date +%s)" -lt "$deadline" ]; do
+        if ! kill -0 "$pid" 2>/dev/null; then
+          echo "  $name process (pid $pid) exited before becoming ready" >&2
+          FAILED=1
+          return 1
+        fi
+        if curl -sf -o /dev/null "http://127.0.0.1:$port/"; then
+          echo "  $name ready on $port"
+          return 0
+        fi
+        sleep 1
+      done
+      break
+    fi
+    reason="$STATE_REASON"
+    # A launcher we started that is already gone cannot ever write a valid state.
+    if [ -n "$live" ] && ! kill -0 "$live" 2>/dev/null; then
+      echo "  $name process (pid $live) exited before recording its state" >&2
+      FAILED=1
+      return 1
+    fi
+    # Re-lookup: setsid's child may have been created since the last probe.
+    live="${STARTED_PID_OF[$name]:-}"
+    sleep 1
+  done
+  echo "  $name did not become ready within ${READY_TIMEOUT}s ($reason)" >&2
+  FAILED=1
+  return 1
+}
+
+wait_port react "$PORT_REACT"
+wait_port vue "$PORT_VUE"
+wait_port angular "$PORT_ANGULAR"
+wait_port leptos "$PORT_LEPTOS"
+wait_port yew "$PORT_YEW"
+wait_port dioxus "$PORT_DIOXUS"
+wait_port blade "$PORT_BLADE"
+
+if [ "$FAILED" -ne 0 ]; then
+  stop_started
+  echo "start-servers.sh: one or more servers failed to start" >&2
+  exit 1
+fi
+echo "all requested servers are up"

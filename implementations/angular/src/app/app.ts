@@ -13,7 +13,7 @@ const generateInitialTodos = (count: number): Todo[] => {
   return Array.from({ length: count }, (_, i) => ({
     id: i + 1,
     text: `Todo item ${i + 1}`,
-    completed: i % 3 === 0, // Every 3rd item is completed
+    completed: (i + 1) % 3 === 0, // Every 3rd item (3, 6, 9, ...) is completed
   }));
 };
 
@@ -73,6 +73,14 @@ export class App {
 
   deleteTodo(id: number) {
     this.todos.update(todos => todos.filter(todo => todo.id !== id));
+  }
+
+  // Toggle every todo: if all are complete, clear them; otherwise complete them all.
+  toggleAll() {
+    this.todos.update(todos => {
+      const allCompleted = todos.length > 0 && todos.every(todo => todo.completed);
+      return todos.map(todo => ({ ...todo, completed: !allCompleted }));
+    });
   }
 
   setFilter(filter: 'all' | 'active' | 'completed') {

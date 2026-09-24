@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="todo-app" id="app">
+    <div class="todo-app">
         <div class="todo-header">
             <h1>Todo List</h1>
             <span class="framework-badge">Blade.php</span>
@@ -55,40 +55,49 @@
             >
                 Completed
             </button>
+            <button
+                class="btn todo-toggle-all"
+                onclick="toggleAll()"
+                aria-label="Toggle all todos"
+            >
+                Toggle all
+            </button>
         </div>
 
         <div class="todo-stats" id="todo-stats">
             <span id="remaining-count">{{ collect($todos)->where('completed', false)->count() }}</span> items remaining
         </div>
 
-        <ul class="todo-list" id="todo-list">
+        <div id="todo-list-container">
             @if (count($todos) === 0)
                 <div class="empty-state">
                     <div class="empty-state-icon">📝</div>
                     <div class="empty-state-text">No todos to display</div>
                 </div>
             @else
-                @foreach ($todos as $todo)
-                    <li class="todo-item {{ $todo['completed'] ? 'completed' : '' }}">
-                        <input
-                            type="checkbox"
-                            class="todo-checkbox"
-                            {{ $todo['completed'] ? 'checked' : '' }}
-                            onchange="toggleTodo({{ $todo['id'] }})"
-                            aria-label="Toggle {{ $todo['text'] }}"
-                        />
-                        <span class="todo-text">{{ $todo['text'] }}</span>
-                        <button
-                            class="btn btn-delete"
-                            onclick="deleteTodo({{ $todo['id'] }})"
-                            aria-label="Delete {{ $todo['text'] }}"
-                        >
-                            Delete
-                        </button>
-                    </li>
-                @endforeach
+                <ul class="todo-list" id="todo-list">
+                    @foreach ($todos as $todo)
+                        <li class="todo-item {{ $todo['completed'] ? 'completed' : '' }}">
+                            <input
+                                type="checkbox"
+                                class="todo-checkbox"
+                                {{ $todo['completed'] ? 'checked' : '' }}
+                                onchange="toggleTodo({{ $todo['id'] }})"
+                                aria-label="Toggle {{ $todo['text'] }}"
+                            />
+                            <span class="todo-text">{{ $todo['text'] }}</span>
+                            <button
+                                class="btn btn-delete"
+                                onclick="deleteTodo({{ $todo['id'] }})"
+                                aria-label="Delete {{ $todo['text'] }}"
+                            >
+                                Delete
+                            </button>
+                        </li>
+                    @endforeach
+                </ul>
             @endif
-        </ul>
+        </div>
 
         <div class="todo-footer">
             Frontend Benchmark - Blade.php Implementation
@@ -135,6 +144,13 @@
             render();
         }
 
+        // Toggle every todo: if all are complete, clear them; otherwise complete them all.
+        function toggleAll() {
+            const allCompleted = todos.length > 0 && todos.every(t => t.completed);
+            todos = todos.map(t => ({ ...t, completed: !allCompleted }));
+            render();
+        }
+
         // Set filter
         function setFilter(filter) {
             currentFilter = filter;
@@ -171,7 +187,7 @@
         function render() {
             const filteredTodos = getFilteredTodos();
             const remainingCount = getRemainingCount();
-            const todoList = document.getElementById('todo-list');
+            const container = document.getElementById('todo-list-container');
             const statsElement = document.getElementById('todo-stats');
 
             // Update stats
@@ -179,32 +195,36 @@
 
             // Render todos
             if (filteredTodos.length === 0) {
-                todoList.innerHTML = `
+                container.innerHTML = `
                     <div class="empty-state">
                         <div class="empty-state-icon">📝</div>
                         <div class="empty-state-text">No todos to display</div>
                     </div>
                 `;
             } else {
-                todoList.innerHTML = filteredTodos.map(todo => `
-                    <li class="todo-item ${todo.completed ? 'completed' : ''}">
-                        <input
-                            type="checkbox"
-                            class="todo-checkbox"
-                            ${todo.completed ? 'checked' : ''}
-                            onchange="toggleTodo(${todo.id})"
-                            aria-label="Toggle ${todo.text}"
-                        />
-                        <span class="todo-text">${escapeHtml(todo.text)}</span>
-                        <button
-                            class="btn btn-delete"
-                            onclick="deleteTodo(${todo.id})"
-                            aria-label="Delete ${todo.text}"
-                        >
-                            Delete
-                        </button>
-                    </li>
-                `).join('');
+                container.innerHTML = `
+                    <ul class="todo-list" id="todo-list">
+                        ${filteredTodos.map(todo => `
+                            <li class="todo-item ${todo.completed ? 'completed' : ''}">
+                                <input
+                                    type="checkbox"
+                                    class="todo-checkbox"
+                                    ${todo.completed ? 'checked' : ''}
+                                    onchange="toggleTodo(${todo.id})"
+                                    aria-label="Toggle ${todo.text}"
+                                />
+                                <span class="todo-text">${escapeHtml(todo.text)}</span>
+                                <button
+                                    class="btn btn-delete"
+                                    onclick="deleteTodo(${todo.id})"
+                                    aria-label="Delete ${todo.text}"
+                                >
+                                    Delete
+                                </button>
+                            </li>
+                        `).join('')}
+                    </ul>
+                `;
             }
         }
 

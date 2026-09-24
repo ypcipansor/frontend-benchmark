@@ -7,16 +7,18 @@ Thank you for your interest in contributing to the Frontend Framework Benchmark 
 ### Adding a New Framework Implementation
 
 1. **Create a new directory** under `implementations/` with your framework name
-2. **Follow the specification** in [BENCHMARK_SPEC.md](BENCHMARK_SPEC.md)
+2. **Follow the specification** in [BENCHMARK_SPEC.md](BENCHMARK_SPEC.md) — including the [Visual Parity Contract](BENCHMARK_SPEC.md#visual-parity-contract)
 3. **Implement the Todo app** with all required features:
-   - Add, toggle, and delete todos
+   - Add, toggle, toggle-all and delete todos
    - Filter by All, Active, Completed
    - Display remaining count
    - Pre-populate with 100 todos
+   - Complete every 3rd item (3, 6, 9, … → 33 completed, 67 remaining)
    - Use shared CSS from `shared/styles/todo.css`
-4. **Create a README** with setup and build instructions
-5. **Test thoroughly** to ensure all features work
-6. **Build for production** and document bundle sizes
+4. **Create a README** with setup, build and verification instructions
+5. **Pass the parity checks** — `docs/parity-check.js` and `docs/pixel-parity.py` must both report full parity (see below)
+6. **Capture screenshots** of all five UI states with `docs/screenshot.js`
+7. **Build for production** and document bundle sizes
 
 ### Framework Implementation Checklist
 
@@ -24,19 +26,55 @@ Thank you for your interest in contributing to the Frontend Framework Benchmark 
 - [ ] All core features implemented:
   - [ ] Add new todos
   - [ ] Toggle completion status
+  - [ ] Toggle all
   - [ ] Delete todos
   - [ ] Filter todos (All/Active/Completed)
   - [ ] Display remaining count
-  - [ ] 100 pre-populated todos
+  - [ ] 100 pre-populated todos, every 3rd completed (33 completed / 67 remaining)
 - [ ] Shared CSS styles used/copied
+- [ ] Page title follows `Todo List - <Framework>`
 - [ ] README.md with:
-  - [ ] Framework version
+  - [ ] Framework and version
   - [ ] Installation instructions
   - [ ] Development server commands
   - [ ] Build commands
   - [ ] Performance considerations
 - [ ] Production build tested
 - [ ] Bundle size documented
+- [ ] `docs/parity-check.js` reports full parity
+- [ ] `docs/pixel-parity.py` reports full parity in every state
+- [ ] `docs/check-shared-stylesheet.js` reports no drift (`cd docs && npm run check:css`)
+- [ ] Screenshots captured and verified for all five states
+
+### Verifying Your Implementation
+
+Visual parity is enforced, not optional. The `docs/` tooling requires **Node.js
+20+** (Playwright 1.63); `npm run check:node` fails fast on an older runtime.
+Start your dev server on its benchmark port, then:
+
+```bash
+cd docs
+npm run check:node
+npm ci
+npx playwright install chromium
+python3 -m pip install -r requirements.txt
+
+npm run capture     # capture all UI states (fails non-zero on any error)
+npm run verify      # reject blank, white, mis-sized or incomplete screenshots
+npm run parity      # DOM, geometry, text and stats must match the other frameworks
+npm run pixel       # pixel-diff every state against the reference
+npm run optimize    # card-cropped JPEGs for the README
+npm run montage     # side-by-side comparison montages
+npm test            # regression tests for the tooling itself
+```
+
+A screenshot that is blank, entirely white, not showing the card, or produced by a
+capture that logged console errors is treated as a failure — fix the implementation
+rather than the expectation. `npm run verify` rejects captures that have console
+errors; it does not reject error-free ones. `npm run pixel` is stricter still: it
+fails on any pixel difference outside the two regions that hold the framework name,
+so subpixel text shaping must match too.
+
 
 ### Reporting Issues
 
@@ -56,8 +94,8 @@ If you're submitting benchmark results:
    - Browser version
    - Testing environment details
    - Raw data in JSON format
-3. Add results to `benchmarks/results/`
-4. Update [RESULTS.md](RESULTS.md) with summary
+3. Add results to `benchmarks/results/` (gitignored — CI keeps them as a 90-day artifact)
+4. Regenerate the results tables with `npm run update-readme` from `benchmarks/scripts/`
 
 ### Code Style
 
@@ -89,18 +127,20 @@ If you're submitting benchmark results:
 - Document any framework-specific optimizations
 - Test on multiple browsers
 - Use production builds for measurements
+- Pass `docs/parity-check.js`, `docs/verify-screenshots.js`, `docs/pixel-parity.py` and `docs/check-shared-stylesheet.js` before opening a PR
 
 **DON'T:**
 - Add unnecessary external dependencies
 - Use non-standard optimizations
 - Skip required features
 - Use different UI/UX from the specification
+- Re-centre or resize the card by overriding the shared mount-point rules
 
 ## Development Setup
 
 ```bash
 # Clone the repository
-git clone https://github.com/analisaperlengkapan/frontend-benchmark.git
+git clone https://github.com/ypcipansor/frontend-benchmark.git
 cd frontend-benchmark
 
 # Navigate to a specific implementation
@@ -116,10 +156,12 @@ npm run dev
 Before submitting:
 
 1. **Visual Test**: Run the dev server and manually test all features
-2. **Build Test**: Create a production build and verify it works
-3. **Bundle Size**: Document the production bundle size
-4. **Performance**: Run basic performance tests
-5. **Accessibility**: Check basic accessibility with browser DevTools
+2. **Parity Test**: Run `npm run parity` from `docs/` and confirm full parity
+3. **Screenshot Test**: Run `npm run capture && npm run verify` and confirm every state passes
+4. **Build Test**: Create a production build and verify it works
+5. **Bundle Size**: Document the production bundle size
+6. **Performance**: Run basic performance tests
+7. **Accessibility**: Check basic accessibility with browser DevTools
 
 ## Questions?
 

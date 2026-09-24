@@ -1,0 +1,12 @@
+# Python dependencies for the screenshot verification pipeline.
+# Install with:  python3 -m pip install -r docs/requirements.txt
+#
+# Versions are pinned exactly (==) to the versions verified by the pipeline on
+# Python 3.12 in CI and on 3.13 locally. This is a pinned install, not a
+# hash-verified lock: it makes upgrades deliberate, but pip may still resolve a
+# different transitive build. Keep the pins in step with the comments below.
+#
+# pillow  -> image decoding/cropping (optimize-images.py, pixel-parity.py)
+# numpy   -> fast per-pixel difference masking (pixel-parity.py)
+pillow==12.3.0
+numpy==2.5.3

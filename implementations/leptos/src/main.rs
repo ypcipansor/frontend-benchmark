@@ -88,6 +88,16 @@ fn App() -> impl IntoView {
         });
     };
 
+    // Toggle every todo: if all are complete, clear them; otherwise complete them all.
+    let toggle_all = move |_| {
+        set_todos.update(|todos| {
+            let all_completed = !todos.is_empty() && todos.iter().all(|t| t.completed);
+            for todo in todos.iter_mut() {
+                todo.completed = !all_completed;
+            }
+        });
+    };
+
     view! {
         <div class="todo-app">
             <div class="todo-header">
@@ -136,10 +146,18 @@ fn App() -> impl IntoView {
                 >
                     "Completed"
                 </button>
+                <button
+                    class="btn todo-toggle-all"
+                    on:click=toggle_all
+                    aria-label="Toggle all todos"
+                >
+                    "Toggle all"
+                </button>
             </div>
 
             <div class="todo-stats">
-                {move || remaining_count()} " " {move || if remaining_count() == 1 { "item" } else { "items" }} " remaining"
+                <span>{move || remaining_count()}</span>
+                {move || format!(" {} remaining", if remaining_count() == 1 { "item" } else { "items" })}
             </div>
 
             {move || {

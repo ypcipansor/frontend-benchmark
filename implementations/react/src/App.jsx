@@ -6,7 +6,7 @@ const generateInitialTodos = (count) => {
   return Array.from({ length: count }, (_, i) => ({
     id: i + 1,
     text: `Todo item ${i + 1}`,
-    completed: i % 3 === 0, // Every 3rd item is completed
+    completed: (i + 1) % 3 === 0, // Every 3rd item (3, 6, 9, ...) is completed
   }));
 };
 
@@ -39,6 +39,12 @@ function App() {
   // Delete todo
   const deleteTodo = (id) => {
     setTodos(todos.filter(todo => todo.id !== id));
+  };
+
+  // Toggle every todo: if all are complete, clear them; otherwise complete them all.
+  const toggleAll = () => {
+    const allCompleted = todos.length > 0 && todos.every(todo => todo.completed);
+    setTodos(todos.map(todo => ({ ...todo, completed: !allCompleted })));
   };
 
   // Filter todos
@@ -114,10 +120,17 @@ function App() {
         >
           Completed
         </button>
+        <button
+          className="btn todo-toggle-all"
+          onClick={toggleAll}
+          aria-label="Toggle all todos"
+        >
+          Toggle all
+        </button>
       </div>
 
       <div className="todo-stats">
-        {remainingCount} {remainingCount === 1 ? 'item' : 'items'} remaining
+        <span>{remainingCount}</span>{` ${remainingCount === 1 ? 'item' : 'items'} remaining`}
       </div>
 
       {filteredTodos.length === 0 ? (

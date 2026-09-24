@@ -18,6 +18,7 @@ pub enum Filter {
 pub enum Msg {
     AddTodo,
     ToggleTodo(usize),
+    ToggleAll,
     DeleteTodo(usize),
     UpdateInput(String),
     SetFilter(Filter),
@@ -78,6 +79,13 @@ impl Component for App {
                 } else {
                     false
                 }
+            }
+            Msg::ToggleAll => {
+                let all_completed = !self.todos.is_empty() && self.todos.iter().all(|t| t.completed);
+                for todo in self.todos.iter_mut() {
+                    todo.completed = !all_completed;
+                }
+                true
             }
             Msg::DeleteTodo(id) => {
                 self.todos.retain(|t| t.id != id);
@@ -171,10 +179,17 @@ impl Component for App {
                     >
                         {"Completed"}
                     </button>
+                    <button
+                        class="btn todo-toggle-all"
+                        onclick={link.callback(|_| Msg::ToggleAll)}
+                        aria-label="Toggle all todos"
+                    >
+                        {"Toggle all"}
+                    </button>
                 </div>
 
                 <div class="todo-stats">
-                    {remaining_count}{" "}{if remaining_count == 1 { "item" } else { "items" }}{" remaining"}
+                    <span>{remaining_count}</span>{format!(" {} remaining", if remaining_count == 1 { "item" } else { "items" })}
                 </div>
 
                 {if filtered_todos.is_empty() {

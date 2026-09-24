@@ -6,7 +6,7 @@ const generateInitialTodos = (count) => {
   return Array.from({ length: count }, (_, i) => ({
     id: i + 1,
     text: `Todo item ${i + 1}`,
-    completed: i % 3 === 0, // Every 3rd item is completed
+    completed: (i + 1) % 3 === 0, // Every 3rd item (3, 6, 9, ...) is completed
   }));
 };
 
@@ -39,6 +39,12 @@ const toggleTodo = (id) => {
 // Delete todo
 const deleteTodo = (id) => {
   todos.value = todos.value.filter(todo => todo.id !== id);
+};
+
+// Toggle every todo: if all are complete, clear them; otherwise complete them all.
+const toggleAll = () => {
+  const allCompleted = todos.value.length > 0 && todos.value.every(todo => todo.completed);
+  todos.value = todos.value.map(todo => ({ ...todo, completed: !allCompleted }));
 };
 
 // Filter todos
@@ -113,11 +119,16 @@ const handleKeyPress = (e) => {
       >
         Completed
       </button>
+      <button
+        class="btn todo-toggle-all"
+        @click="toggleAll"
+        aria-label="Toggle all todos"
+      >
+        Toggle all
+      </button>
     </div>
 
-    <div class="todo-stats">
-      {{ remainingCount }} {{ remainingCount === 1 ? 'item' : 'items' }} remaining
-    </div>
+    <div class="todo-stats"><span>{{ remainingCount }}</span> {{ remainingCount === 1 ? 'item' : 'items' }} remaining</div>
 
     <div v-if="filteredTodos.length === 0" class="empty-state">
       <div class="empty-state-icon">📝</div>
