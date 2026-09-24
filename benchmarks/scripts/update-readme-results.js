@@ -82,7 +82,67 @@ function displayName(framework) {
   return framework.charAt(0).toUpperCase() + framework.slice(1);
 }
 
-function generateBenchmarkSection(results) {
+// Optional environment metadata captured by CI (runner specs, browser, Docker,
+// load tool, workflow run). Written to benchmarks/results/environment.json.
+function readEnvironment() {
+  const envPath = path.join(RESULTS_DIR, 'environment.json');
+  if (!fs.existsSync(envPath)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(envPath, 'utf-8'));
+  } catch (e) {
+    return null;
+  }
+}
+
+// Pull the Lighthouse table from an already-rendered README so a run whose
+// audits failed can fall back to the last valid table instead of erasing it.
+function extractPreviousLighthouse(readme) {
+  if (!readme) return null;
+  const sectionMatch = readme.match(/### Lighthouse Performance\n([\s\S]*?)(?=\n### )/);
+  if (!sectionMatch) return null;
+  const sectionText = sectionMatch[1];
+  const tableLines = sectionText
+    .split('\n')
+    .filter(line => line.trim().startsWith('|'));
+  // header + separator + at least one data row
+  if (tableLines.length < 3) return null;
+  // Prefer a date embedded in the section (a previously-preserved stale table
+  // carries its own "from YYYY-MM-DD" marker); otherwise the README-wide date.
+  const topDateMatch = readme.match(/\*Last updated: (\d{4}-\d{2}-\d{2})\*/);
+  const innerDateMatch = sectionText.match(/from\s+\*{0,2}(\d{4}-\d{2}-\d{2})\*{0,2}/);
+  const date = (innerDateMatch && innerDateMatch[1]) || (topDateMatch && topDateMatch[1]) || 'a previous run';
+  return { date, table: tableLines.join('\n') };
+}
+
+// Render the "### Test Environment" subsection. Falls back to the known
+// GitHub-hosted runner defaults used by the comprehensive workflow when no
+// environment.json artifact is available.
+function renderTestEnvironment() {
+  const env = readEnvironment() || {};
+  const runner = env.runner || {};
+  const rows = [
+    ['Runner', runner.os || 'ubuntu-latest (ubuntu-24.04.5 LTS), GitHub-hosted'],
+    ['CPU', runner.cpu || '4 vCPU'],
+    ['Memory', runner.memory || '15.61 GiB'],
+    ['Node.js', runner.node || '24 (v24.21.0)'],
+    ['Browser (Lighthouse)', env.chrome || 'Chromium 153.0.8010.36'],
+    ['Docker Engine', env.docker || '28.0.4 (containerd 2.3.5, runc 1.5.1)'],
+    ['Load test tool', env.loadTool || 'autocannon 8.x (pipelining 1)'],
+    ['Workflow run', env.runUrl || 'https://github.com/ypcipansor/frontend-benchmark/actions/workflows/benchmark-comprehensive.yml']
+  ];
+  let md = '### Test Environment\n\n';
+  md += '| Item | Value |\n|------|-------|\n';
+  rows.forEach(([k, v]) => { md += `| ${k} | ${v} |\n`; });
+  if (env.artifactRetentionDays) {
+    md += `\n> Raw results (` + '`benchmarks/results/*.json`' + `) are gitignored; they are uploaded as a ${env.artifactRetentionDays}-day workflow artifact. `;
+    md += `See the workflow run linked above.\n`;
+  } else {
+    md += '\n> Raw results (`benchmarks/results/*.json`) are gitignored and uploaded as a 90-day workflow artifact.\n';
+  }
+  return md;
+}
+
+function generateBenchmarkSection(results, previousReadme) {
   const date = new Date().toISOString().split('T')[0];
 
   // Ranked lists used across tables.
@@ -110,6 +170,7 @@ function generateBenchmarkSection(results) {
   // data for others), so rankings should be treated with care until a single
   // fresh full 7-framework run is executed in one environment.
   md += '> ⚠️ **Provenance:** Values below were collected across separate runs and environments and may not be directly comparable. A single, fresh, full 7-framework run in one environment is needed before rankings can be treated as authoritative.\n\n';
+  md += '> 📐 **Comparability:** Throughput and memory figures are **not directly comparable across runs** when the runner/host or container resource limits change — a different CPU allocation, cgroup memory limit, or kernel changes the measured req/s and RSS substantially. Large swings versus a previous run (e.g. throughput or RSS dropping by more than half) usually indicate an environment change, not a framework regression. Compare only runs that share the Test Environment below.\n\n';
 
   // ----- Quick Highlights -----
   md += '### Quick Highlights\n\n';
@@ -130,10 +191,8 @@ function generateBenchmarkSection(results) {
   if (noLighthouse.length) {
     md += '\n**Notes:**\n';
     noLighthouse.forEach(r => {
-      const reason = (r.performanceScore === 0 || (r.metrics && isNaN(r.metrics.firstContentfulPaint)))
-        ? 'Lighthouse audit produced NaN/invalid values'
-        : 'Lighthouse audit unavailable';
-      md += `- ${displayName(r.framework)}: ${reason} — re-run in idle conditions.\n`;
+      const err = r.error ? ` (${r.error})` : '';
+      md += `- ${displayName(r.framework)}: Lighthouse audit unavailable${err} — see Test Environment and re-run.\n`;
     });
   }
 
@@ -143,7 +202,7 @@ function generateBenchmarkSection(results) {
   const topBundles = bundleList.slice(0, 3).map(r => `${r.framework} (${formatBytes(r.totalGzipped)})`).join(', ');
 
   md += `\n- Top throughput (top 3): ${topThroughput || 'N/A'}\n`;
-  md += `- Top Lighthouse (top 3): ${topPerf || 'N/A'}\n`;
+  md += `- Top Lighthouse (top 3): ${topPerf || (extractPreviousLighthouse(previousReadme) ? 'N/A this run (stale table shown below)' : 'N/A')}\n`;
   md += `- Smallest bundles (top 3): ${topBundles || 'N/A'}\n`;
 
   md += '\n---\n\n';
@@ -151,7 +210,14 @@ function generateBenchmarkSection(results) {
   // ----- Lighthouse Performance -----
   md += '### Lighthouse Performance\n\n';
   if (!perfList.length) {
-    md += '_No valid Lighthouse results available. Re-run the comprehensive benchmark in idle conditions._\n';
+    const stale = extractPreviousLighthouse(previousReadme);
+    if (stale) {
+      md += `_This run (${date}) failed to produce Lighthouse results — the audit could not run. Showing the last valid results from **${stale.date}** instead. `;
+      md += 'These stale values are not from the current run._\n\n';
+      md += stale.table + '\n';
+    } else {
+      md += '_No valid Lighthouse results available. Re-run the comprehensive benchmark in idle conditions._\n';
+    }
   } else {
     md += '| Rank | Framework | Perf | FCP | LCP | TTI |\n';
     md += '|-----:|-----------|-----:|----:|----:|----:|\n';
@@ -209,6 +275,8 @@ function generateBenchmarkSection(results) {
 
   // ----- Runtime resource usage (CPU / Memory) -----
   md += '### Runtime Resource Usage\n\n';
+  md += 'The first table samples an **idle container** (no traffic) for 30s. It is useful only for baseline/startup footprint — it is *not* representative of CPU or memory under load.\n\n';
+  md += '**Idle container sampling (30s, no load)**\n\n';
   md += '| Framework | CPU (avg / max) | Memory (avg / max) |\n';
   md += '|-----------|----------------:|-------------------:|\n';
   const hasRuntimeData = (c) =>
@@ -226,9 +294,35 @@ function generateBenchmarkSection(results) {
   });
   md += '\n';
 
+  // Under-load resource usage, sampled by the stress test while autocannon
+  // drove the container. Rendered only when such samples exist.
+  const hasStressStats = (r) => {
+    const s = peakStressSample(r);
+    return !!(s && s.containerStats && s.containerStats.cpu && s.containerStats.memory);
+  };
+  if (results.some(hasStressStats)) {
+    md += '**Under load (peak stress sample, 2,000 connections)**\n\n';
+    md += '| Framework | Concurrency | CPU (avg / max) | Memory (avg / max) |\n';
+    md += '|-----------|------------:|----------------:|-------------------:|\n';
+    rtSorted.forEach(r => {
+      const s = peakStressSample(r);
+      if (!(s && s.containerStats && s.containerStats.cpu && s.containerStats.memory)) {
+        md += `| ${r.framework} | N/A | N/A | N/A |\n`;
+        return;
+      }
+      const c = s.containerStats;
+      md += `| ${r.framework} | ${formatNumber(s.concurrency)} | ${c.cpu.average.toFixed(2)}% / ${c.cpu.max.toFixed(2)}% | ${c.memory.averageMB.toFixed(2)} MB / ${c.memory.maxMB.toFixed(2)} MB |\n`;
+    });
+    md += '\n';
+  }
+
+  // ----- Test Environment -----
+  md += renderTestEnvironment() + '\n';
+
   md += '---\n\n';
   md += '### Testing Methodology\n\n';
   md += 'All tests were performed using the included `benchmarks/scripts` runner and are reproducible with the Docker-based setup. Results will vary by environment.\n\n';
+  md += 'Throughput and latency are measured by `autocannon` (pipelining 1) at 100/500/1,000/2,000 concurrent connections for 30s per level. CPU/memory are sampled with `docker stats` both while idle and during the peak stress level, as labelled above.\n\n';
   md += 'For detailed per-framework analysis and complete methodology, see [BENCHMARK_GUIDE.md](BENCHMARK_GUIDE.md).\n';
 
   return md;
@@ -277,6 +371,9 @@ function updateReadme(benchmarkSection) {
     process.exit(1);
   }
 
-  const benchmarkSection = generateBenchmarkSection(results);
+  // Read the current README first so a failed Lighthouse run can fall back to
+  // the last valid table instead of deleting it.
+  const previousReadme = fs.existsSync(README_FILE) ? fs.readFileSync(README_FILE, 'utf-8') : '';
+  const benchmarkSection = generateBenchmarkSection(results, previousReadme);
   updateReadme(benchmarkSection);
 })();

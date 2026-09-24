@@ -6,7 +6,9 @@
  */
 
 const autocannon = require('autocannon');
-const { execSync } = require('child_process');
+const { execSync, exec } = require('child_process');
+const { promisify } = require('util');
+const execAsync = promisify(exec);
 const fs = require('fs');
 const path = require('path');
 
@@ -91,12 +93,19 @@ function sampleContainerStats(containerName, durationSeconds, intervalMs = DEFAU
 
   return new Promise((resolve) => {
     let count = 0;
-    const timer = setInterval(() => {
+
+    // Use async exec, NOT execSync: this sampler runs concurrently with
+    // autocannon in the same Node process. A synchronous `docker stats`
+    // subprocess blocks the event loop and freezes the load generator,
+    // which crushes measured throughput and pins latency near the sampling
+    // interval. A recursive async loop keeps the sampling interval but never
+    // blocks request generation.
+    const tick = async () => {
       try {
-        const out = execSync(
-          `docker stats ${containerName} --no-stream --format "{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}"`,
-          { encoding: 'utf8' }
-        ).trim();
+        const { stdout } = await execAsync(
+          `docker stats ${containerName} --no-stream --format "{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}"`
+        );
+        const out = stdout.trim();
 
         const parts = out.split('|');
         // CPU
@@ -121,7 +130,6 @@ function sampleContainerStats(containerName, durationSeconds, intervalMs = DEFAU
 
       count++;
       if (count >= iterCount) {
-        clearInterval(timer);
         const avg = arr => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
         const mx = arr => (arr.length ? Math.max(...arr) : 0);
 
@@ -136,8 +144,12 @@ function sampleContainerStats(containerName, durationSeconds, intervalMs = DEFAU
             maxPercent: mx(stats.memoryPercent)
           }
         });
+      } else {
+        setTimeout(tick, intervalMs);
       }
-    }, intervalMs);
+    };
+
+    tick();
   });
 }
 

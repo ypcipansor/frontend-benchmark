@@ -9,7 +9,11 @@
 const { execSync, spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const lighthouse = require('lighthouse');
+// Lighthouse v13 ships as ESM-only, so `require()` returns a module namespace
+// object whose callable export lives on `.default` (CommonJS builds exposed the
+// function directly). Resolve either shape.
+const lighthouseModule = require('lighthouse');
+const lighthouse = lighthouseModule.default || lighthouseModule;
 const chromeLauncher = require('chrome-launcher');
 
 const RESULTS_DIR = path.join(__dirname, '../results');

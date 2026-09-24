@@ -15,29 +15,43 @@
 
 > ⚠️ **Provenance:** Values below were collected across separate runs and environments and may not be directly comparable. A single, fresh, full 7-framework run in one environment is needed before rankings can be treated as authoritative.
 
+> 📐 **Comparability:** Throughput and memory figures are **not directly comparable across runs** when the runner/host or container resource limits change — a different CPU allocation, cgroup memory limit, or kernel changes the measured req/s and RSS substantially. Large swings versus a previous run (e.g. throughput or RSS dropping by more than half) usually indicate an environment change, not a framework regression. Compare only runs that share the Test Environment below.
+
+> 🔎 **This run vs. the 2026-09-16 run:** Dioxus throughput fell from ~38,050 req/s to ~15,099 req/s and reported RSS fell from ~50 MB to ~5 MB. Every framework now clusters near a ~12k–15.5k req/s ceiling and ~5 MB baseline, which points to a changed runner/container environment (and a load-generator sampling artefact) rather than per-framework regressions. Treat cross-run deltas here as environment noise until a run is repeated on an identical runner.
+
 ### Quick Highlights
 
 - 📦 **Smallest gzipped bundle:** blade — **1.32 KB**
 - ⚡ **Highest throughput:** Vue — **15,496 req/s** @ 2,000 connections
 
 **Notes:**
-- React: Lighthouse audit unavailable — re-run in idle conditions.
-- Vue: Lighthouse audit unavailable — re-run in idle conditions.
-- Angular: Lighthouse audit unavailable — re-run in idle conditions.
-- Leptos: Lighthouse audit unavailable — re-run in idle conditions.
-- Yew: Lighthouse audit unavailable — re-run in idle conditions.
-- Dioxus: Lighthouse audit unavailable — re-run in idle conditions.
-- Blade: Lighthouse audit unavailable — re-run in idle conditions.
+- React: Lighthouse audit unavailable (lighthouse is not a function) — see Test Environment and re-run.
+- Vue: Lighthouse audit unavailable (lighthouse is not a function) — see Test Environment and re-run.
+- Angular: Lighthouse audit unavailable (lighthouse is not a function) — see Test Environment and re-run.
+- Leptos: Lighthouse audit unavailable (lighthouse is not a function) — see Test Environment and re-run.
+- Yew: Lighthouse audit unavailable (lighthouse is not a function) — see Test Environment and re-run.
+- Dioxus: Lighthouse audit unavailable (lighthouse is not a function) — see Test Environment and re-run.
+- Blade: Lighthouse audit unavailable (lighthouse is not a function) — see Test Environment and re-run.
 
 - Top throughput (top 3): Vue (15,496 req/s), React (15,104 req/s), Dioxus (15,099 req/s)
-- Top Lighthouse (top 3): N/A
+- Top Lighthouse (top 3): N/A this run (stale table shown below)
 - Smallest bundles (top 3): blade (1.32 KB), vue (26.02 KB), react (68.18 KB)
 
 ---
 
 ### Lighthouse Performance
 
-_No valid Lighthouse results available. Re-run the comprehensive benchmark in idle conditions._
+_This run (2026-09-24) failed to produce Lighthouse results — the audit could not run. Showing the last valid results from **2026-09-16** instead. These stale values are not from the current run._
+
+| Rank | Framework | Perf | FCP | LCP | TTI |
+|-----:|-----------|-----:|----:|----:|----:|
+| 1 | vue | **100/100** | 1053ms | 1204ms | 1179ms |
+| 2 | leptos | **100/100** | 906ms | 1582ms | 1244ms |
+| 3 | angular | **100/100** | 1212ms | 1589ms | 1394ms |
+| 4 | yew | **100/100** | 903ms | 1579ms | 1612ms |
+| 5 | react | **100/100** | 1203ms | 1354ms | 1203ms |
+| 6 | dioxus | **98/100** | 1205ms | 2408ms | 2450ms |
+| 7 | blade | **87/100** | 751ms | 751ms | 751ms |
 
 ### Bundle Sizes (gzipped)
 
@@ -77,6 +91,10 @@ _No valid Lighthouse results available. Re-run the comprehensive benchmark in id
 
 ### Runtime Resource Usage
 
+The first table samples an **idle container** (no traffic) for 30s. It is useful only for baseline/startup footprint — it is *not* representative of CPU or memory under load.
+
+**Idle container sampling (30s, no load)**
+
 | Framework | CPU (avg / max) | Memory (avg / max) |
 |-----------|----------------:|-------------------:|
 | react | 0.00% / 0.00% | 4.97 MB / 4.98 MB |
@@ -87,11 +105,40 @@ _No valid Lighthouse results available. Re-run the comprehensive benchmark in id
 | dioxus | 0.00% / 0.00% | 4.84 MB / 5.19 MB |
 | blade | 0.01% / 0.01% | 18.78 MB / 19.02 MB |
 
+**Under load (peak stress sample, 2,000 connections)**
+
+| Framework | Concurrency | CPU (avg / max) | Memory (avg / max) |
+|-----------|------------:|----------------:|-------------------:|
+| react | 2,000 | 0.17% / 6.58% | 6.06 MB / 14.39 MB |
+| vue | 2,000 | 0.31% / 8.33% | 6.31 MB / 14.23 MB |
+| angular | 2,000 | 0.09% / 5.60% | 6.25 MB / 14.23 MB |
+| leptos | 2,000 | 0.17% / 7.12% | 6.32 MB / 14.43 MB |
+| yew | 2,000 | 0.16% / 7.94% | 6.32 MB / 14.25 MB |
+| dioxus | 2,000 | 0.21% / 6.70% | 6.20 MB / 14.25 MB |
+| blade | 2,000 | 1.18% / 80.78% | 92.36 MB / 185.40 MB |
+
+### Test Environment
+
+| Item | Value |
+|------|-------|
+| Runner | ubuntu-latest (ubuntu-24.04.5 LTS), GitHub-hosted |
+| CPU | 4 vCPU |
+| Memory | 15.61 GiB |
+| Node.js | 24 (v24.21.0) |
+| Browser (Lighthouse) | Chromium 153.0.8010.36 |
+| Docker Engine | 28.0.4 (containerd 2.3.5, runc 1.5.1) |
+| Load test tool | autocannon 8.x (pipelining 1) |
+| Workflow run | https://github.com/ypcipansor/frontend-benchmark/actions/runs/35998087756 |
+
+> Raw results (`benchmarks/results/*.json`) are gitignored; they are uploaded as a 90-day workflow artifact. See the workflow run linked above.
+
 ---
 
 ### Testing Methodology
 
 All tests were performed using the included `benchmarks/scripts` runner and are reproducible with the Docker-based setup. Results will vary by environment.
+
+Throughput and latency are measured by `autocannon` (pipelining 1) at 100/500/1,000/2,000 concurrent connections for 30s per level. CPU/memory are sampled with `docker stats` both while idle and during the peak stress level, as labelled above.
 
 For detailed per-framework analysis and complete methodology, see [BENCHMARK_GUIDE.md](BENCHMARK_GUIDE.md).
 
