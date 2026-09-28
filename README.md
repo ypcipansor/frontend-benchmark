@@ -332,19 +332,24 @@ Making seven runtimes agree required real corrections — every one of them veri
 
 Each framework lives in `implementations/<framework>/` with its own README.
 
+Run each command from the **repository root in its own terminal** — the
+subshell `(cd …)` leaves your shell where it was, so the commands can be run one
+after another (and several dev servers at once) without the working directory
+drifting:
+
 ```bash
 # JavaScript / TypeScript
-cd implementations/react   && npm install && npm run dev     # http://localhost:5173
-cd implementations/vue     && npm install && npm run dev
-cd implementations/angular && npm install && npm start
+(cd implementations/react   && npm install && npm run dev)     # http://localhost:5173
+(cd implementations/vue     && npm install && npm run dev)
+(cd implementations/angular && npm install && npm start)
 
 # Rust / WebAssembly (needs: cargo install trunk && rustup target add wasm32-unknown-unknown)
-cd implementations/leptos && trunk serve
-cd implementations/yew    && trunk serve
-cd implementations/dioxus && trunk serve
+(cd implementations/leptos && trunk serve)
+(cd implementations/yew    && trunk serve)
+(cd implementations/dioxus && trunk serve)
 
 # PHP
-cd implementations/blade  && composer install && php -S 127.0.0.1:8000 -t .
+(cd implementations/blade  && composer install && php -S 127.0.0.1:8000 -t .)
 ```
 
 ### Run the benchmarks

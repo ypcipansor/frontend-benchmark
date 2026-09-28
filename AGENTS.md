@@ -24,13 +24,15 @@ Blade needs `composer install` first. The Rust dists reference the stylesheet as
 
 ## Verifying changes
 
-The `docs/` tooling needs **Node.js 22.22.3+** (or 24.15+, or 26+): the Angular
-22 dev server the capture pipeline starts declares
-`engines.node ^22.22.3 || ^24.15.0 || >=26.0.0` and refuses an older runtime.
-`docs/package.json` carries that `engines` field, `npm run check:node` enforces
-the current runtime, and `npm run check:node-engines` proves every Node.js
-version pinned in `.github/workflows/` satisfies it. React and Vue build on
-Node 18+; Angular declares the same floor in its own `engines`.
+The `docs/` tooling needs the **exact Angular CLI 22 range**:
+`^22.22.3 || ^24.15.0 || >=26.0.0`. The range is *disjoint* — it excludes Node
+23 and 25, which Angular rejects — so the check must evaluate the whole range,
+not just its `>=` minimum. `docs/package.json` carries that `engines` field,
+`npm run check:node` evaluates it through `docs/lib/node-semver.js` (shared with
+`check:node-engines.js`), and `npm run check:node-engines` proves every Node.js
+version pinned in `.github/workflows/` satisfies both `docs/` and Angular's
+`engines`. React and Vue build on Node 18+; Angular declares the same range in
+its own `engines`.
 
 ```bash
 cd docs
@@ -98,7 +100,22 @@ regression test appends a byte to a copy and proves the check rejects it, so the
   naive `x1`/`y1` went negative used to make NumPy read the mask relative to the
   array's far end, silently clearing pixels on the *opposite* edge — a real
   difference could hide there. Partially off-screen rectangles are still padded
-  and clamped to a valid non-empty slice.
+  and clamped to a valid non-empty slice. The recorded rectangles are in *CSS*
+  pixels (`getBoundingClientRect()`), so each is scaled by its framework's
+  declared `deviceScaleFactor` before clamping — at DPR 2 an unscaled mask lands
+  at half the intended device coordinate and exposes the framework-name marker
+  the capture deliberately records. Each candidate is also checked against its
+  *own* declared DPR before diffing, so a report cannot declare one scale while
+  the image was rendered at another. `npm run pixel` is a standalone gate: it
+  rejects a framework whose `errors` array is non-empty (or missing), not only
+  `failed`/`error`, so it cannot confirm a capture that logged app failures.
+- **Results PRs clear the same gates as any PR.** `benchmark-comprehensive.yml`
+  opens its results PR with `GITHUB_TOKEN`, so GitHub starts no `pull_request`
+  workflow for it. The job therefore dispatches *all three* workflows against the
+  results branch — `basic-checks.yml`, `benchmark.yml` and `visual-parity.yml` —
+  and `auto-merge-benchmark.yml` watches `workflow_run` for those three names and
+  lists all of them in `REQUIRED_WORKFLOWS`, checking the head SHA. Drop any one
+  and a README-only results PR can merge without its gate.
 - **Server start/stop is identity-checked.** `start-servers.sh` launches each
   server through `scripts/lib/serve.sh` under `setsid`; the wrapper writes the
   atomic `docs/logs/<framework>.state` (PID, process-group id, `/proc/<pid>/stat`
@@ -114,8 +131,13 @@ regression test appends a byte to a copy and proves the check rejects it, so the
   whose identity no longer verifies) is quarantined, and readiness is only accepted
   once the state carries the current run's `run_token` and verifies against live
   `/proc` — a stale record can never abort a valid startup, and a process this run
-  launched that dies before recording a valid state still fails. Unknown `--only`
-  and malformed numeric flags exit 2 before anything starts.
+  launched that dies before recording a valid state still fails. A state file
+  whose process is *alive and verified* is a hard refusal when that framework is
+  requested: starting anyway would overwrite the record (`serve.sh` replaces it)
+  and strand the first server, so `stop-servers.sh` could only ever reap the
+  newer instance. The check is per framework, not per port — the live server may
+  be on a different offset port. Unknown `--only` and malformed numeric flags
+  exit 2 before anything starts.
 - **Failure cleanup reaps the whole group, not just the leader.**
   `stop_started()` signals the *process group* the run launched, records that
   group id (not just the leader PID), and after the grace period checks whether

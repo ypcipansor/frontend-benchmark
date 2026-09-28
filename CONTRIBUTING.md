@@ -48,9 +48,11 @@ Thank you for your interest in contributing to the Frontend Framework Benchmark 
 
 ### Verifying Your Implementation
 
-Visual parity is enforced, not optional. The `docs/` tooling requires **Node.js
-20+** (Playwright 1.63); `npm run check:node` fails fast on an older runtime.
-Start your dev server on its benchmark port, then:
+Visual parity is enforced, not optional. The `docs/` tooling requires the same
+Node.js range as Angular CLI 22 — **`^22.22.3 || ^24.15.0 || >=26.0.0`**; Node
+23 and 25 are excluded because Angular rejects them. `npm run check:node` fails
+fast on an unsupported runtime. Start your dev server on its benchmark port,
+then:
 
 ```bash
 cd docs
@@ -109,10 +111,11 @@ intentionally **gitignored**: the CI job regenerates
 - For automated runs, the workflow runs `benchmarks/scripts/capture-environment.js`
   to write `benchmarks/results/environment.json`, and links the workflow run URL
   in the README's Test Environment section automatically.
-- For manual submissions, run `npm run capture-env` on the measured machine
-  before `npm run update-readme` so the table records *your* hardware and
-  versions (override with `BENCH_OS`, `BENCH_CPU`, `BENCH_MEMORY`,
-  `BENCH_RUN_URL` if needed). If you skip it, the README will say
+- For manual submissions, run
+  `cd benchmarks/scripts && npm run capture-env && npm run update-readme` on the
+  measured machine so the table records *your* hardware and versions (override
+  with `BENCH_OS`, `BENCH_CPU`, `BENCH_MEMORY`, `BENCH_RUN_URL` if needed). If
+  you skip it, the README will say
   "_not captured_" rather than guess. Attach the raw JSON to the pull request
   (or link the workflow artifact); do **not** commit large JSON blobs to
   `benchmarks/results/`.

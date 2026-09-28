@@ -12,7 +12,12 @@ name: Auto-merge benchmark results PRs
 # evaluation after the dispatched checks land on the PR head.
 on:
   workflow_run:
-    workflows: ["Basic Checks", "Frontend Benchmark CI"]
+    # Every workflow the comprehensive benchmark dispatches for a results PR.
+    # Visual Parity is included: a README-only results PR must not merge before
+    # the screenshot/parity/pixel gate has run on its head, exactly like a
+    # normal PR. workflow_run fires whenever these complete, regardless of the
+    # dispatch that triggered them.
+    workflows: ["Basic Checks", "Frontend Benchmark CI", "Visual Parity"]
     types: [completed]
   check_suite:
     types: [completed]
@@ -33,11 +38,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SELF_NAME: Auto-merge benchmark PRs
-          # Both workflows the comprehensive benchmark dispatches for a results
-          # PR. The merge must not proceed unless both actually ran and passed;
-          # otherwise a failed second dispatch would still merge on the first
-          # workflow's green checks.
-          REQUIRED_WORKFLOWS: '["Basic Checks","Frontend Benchmark CI"]'
+          # Every workflow the comprehensive benchmark dispatches for a results
+          # PR, including Visual Parity. The merge must not proceed unless all
+          # of them actually ran and passed on the head SHA; otherwise a failed
+          # dispatch would still merge on the workflows that did run.
+          REQUIRED_WORKFLOWS: '["Basic Checks","Frontend Benchmark CI","Visual Parity"]'
         run: |
           set -e
 

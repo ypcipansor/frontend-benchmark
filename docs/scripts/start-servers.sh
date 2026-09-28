@@ -127,21 +127,32 @@ start() {
 # read as this run's identity: wait_port would see the old PID, notice it is
 # dead and abort a startup that is actually fine. Quarantine such records before
 # launching anything (quarantine, not delete, so the stale record stays
-# inspectable). A state file whose process is still alive and verified is left
-# alone -- it may belong to a server on a different port that this run did not
-# target (only a port collision, caught by the preflight, is fatal).
+# inspectable).
+#
+# A state file whose process is still alive and verified means the same
+# framework is *already* managed on some port. A second launch would replace
+# that record (serve.sh overwrites it), stranding the first server: a later
+# stop-servers.sh would stop only the newer one and the original port would stay
+# occupied. So a verified live record is a hard refusal, not a silent overwrite.
+# The requested port itself is not enough to detect this -- the first server may
+# be listening on a different offset port -- so the check is per framework.
+# Sets ALREADY_RUNNING=1 when such a record is found; the caller exits before
+# launching anything.
+ALREADY_RUNNING=0
 quarantine_stale_states() {
   local name stale
   for name in $FRAMEWORKS; do
     want "$name" || continue
     stale="$LOGS/$name.state"
     [ -e "$stale" ] || continue
-    # A record is only left in place when its process is alive and verified
-    # (return 0). Anything else -- dead leader with an empty group, a recycled
-    # PID, a foreign group -- is stale, so it is quarantined and never read as
-    # this run's identity.
+    # A record whose process is alive and verified (return 0) names a running
+    # server, regardless of the port it serves. Anything else -- dead leader with
+    # an empty group, a recycled PID, a foreign group -- is stale, so it is
+    # quarantined and never read as this run's identity.
     if verify_state "$stale"; then
-      echo "start-servers.sh: leaving $name.state in place ($STATE_REASON)" >&2
+      echo "start-servers.sh: $name is already running with a verified state" \
+           "($STATE_REASON); refusing to start a second instance" >&2
+      ALREADY_RUNNING=1
     else
       echo "start-servers.sh: quarantining stale $name.state: $STATE_REASON" >&2
       quarantine_state "$stale" "$LOGS"
@@ -185,8 +196,14 @@ if [ "$FAILED" -ne 0 ]; then
 fi
 
 # Clear stale state records (dead PIDs / old run tokens) before launching, so
-# wait_port can never mistake an earlier run's file for this run's identity.
+# wait_port can never mistake an earlier run's file for this run's identity. A
+# verified live record is a refusal: launching anyway would overwrite it and
+# strand the running server.
 quarantine_stale_states
+if [ "$ALREADY_RUNNING" -ne 0 ]; then
+  echo "start-servers.sh: a requested framework is already running; no servers were started" >&2
+  exit 1
+fi
 
 # --- JavaScript frameworks: Vite dev servers ------------------------------
 if want react; then

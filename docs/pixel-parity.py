@@ -120,6 +120,17 @@ def load_label_rects(path):
             raise ReportError(f'report has no entry for framework "{fw}"')
         if entry.get('failed') or 'error' in entry:
             raise ReportError(f'report marks framework "{fw}" as failed: {entry.get("error")}')
+        # `npm run pixel` is documented as a standalone gate, so it must reject a
+        # capture that logged console/network failures even when the images match.
+        # The CI sequence runs verify first, but relying on that would let a
+        # report with an `errors` array print PIXEL PARITY CONFIRMED here.
+        errors = entry.get('errors')
+        if not isinstance(errors, list):
+            raise ReportError(f'report entry for "{fw}" has no errors list')
+        if errors:
+            raise ReportError(
+                f'report entry for "{fw}" recorded {len(errors)} console/network '
+                f'error(s): {errors!r}')
         viewport = entry.get('viewport')
         if not isinstance(viewport, dict):
             raise ReportError(f'report entry for "{fw}" has no viewport')
@@ -201,7 +212,21 @@ def clamp_box(box, height, width):
     return x0, y0, x1, y1
 
 
-def masked_diff(ref, other, ref_rects, other_rects):
+def scale_box(box, dpr):
+    """Convert a CSS-pixel rectangle into device pixels for a capture at `dpr`.
+
+    ``screenshot.js`` records the rectangles from ``getBoundingClientRect()`` in
+    CSS pixels, while the images (and therefore the diff array) are in device
+    pixels. At ``deviceScaleFactor`` 1 the two coincide, but above 1 the mask
+    must be scaled or it lands on the wrong pixels — a badge at CSS x=686 is near
+    device x=1372 at DPR 2, so an unscaled mask exposes the framework name that
+    the capture deliberately records in that region.
+    """
+    x, y, w, h = (float(v) for v in box)
+    return [x * dpr, y * dpr, w * dpr, h * dpr]
+
+
+def masked_diff(ref, other, ref_rects, other_rects, ref_dpr, other_dpr):
     """Difference mask with the badge/footer boxes zeroed out.
 
     Equality is exact per RGB channel: a single unit of change in any channel,
@@ -215,14 +240,17 @@ def masked_diff(ref, other, ref_rects, other_rects):
     enough that a hull spanning badge and footer could swallow unrelated rows. A
     real difference in that gap must still fail, so only the rectangles
     themselves (plus their per-rectangle padding) are cleared.
+
+    Each rectangle is scaled from the CSS pixels the report records to the
+    device pixels of the image using the framework's declared DPR.
     """
     diff = np.any(ref != other, axis=2)
     for key in LABEL_KEYS:
-        for rects in (ref_rects, other_rects):
+        for rects, dpr in ((ref_rects, ref_dpr), (other_rects, other_dpr)):
             box = rects.get(key)
             if box is None:
                 raise ReportError(f'required {key} rectangle missing from the report')
-            x0, y0, x1, y1 = clamp_box(box, diff.shape[0], diff.shape[1])
+            x0, y0, x1, y1 = clamp_box(scale_box(box, dpr), diff.shape[0], diff.shape[1])
             diff[y0:y1, x0:x1] = False
     return diff
 
@@ -265,6 +293,16 @@ def main():
                 failures += 1
                 continue
             other = np.asarray(Image.open(path).convert('RGB'))
+            # The candidate must match its *own* declared DPR, not merely the
+            # reference's size: a report could declare one DPR while the image is
+            # rendered at another, which would make its masks meaningless.
+            fw_dpr = report_dpr(label_rects, fw)
+            fw_w, fw_h = round(VIEWPORT_W * fw_dpr), round(VIEWPORT_H * fw_dpr)
+            if other.shape[1] != fw_w or other.shape[0] != fw_h:
+                print(f'  FAIL {fw}: size {other.shape[1]}x{other.shape[0]} != expected '
+                      f'{fw_w}x{fw_h} for its declared DPR {fw_dpr:g}')
+                failures += 1
+                continue
             if other.shape != ref.shape:
                 print(f'  FAIL {fw}: size {other.shape} != {ref.shape}')
                 failures += 1
@@ -275,6 +313,8 @@ def main():
                     other,
                     label_rects.get(REFERENCE, {}).get(state, {}),
                     label_rects.get(fw, {}).get(state, {}),
+                    dpr,
+                    fw_dpr,
                 )
             except ReportError as exc:
                 print(f'  FAIL {fw}: {exc}')

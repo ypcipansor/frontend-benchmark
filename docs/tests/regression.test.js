@@ -219,13 +219,21 @@ const FOOTER_RECT = [450, 880, 540, 30];
  * a coloured marker inside `badgeRect` that differs per framework — exactly the
  * kind of framework-name difference the pixel checker is meant to mask.
  */
-function writeShot(file, { cardHeight, markerColor, height = VIEWPORT_H, bottomBar = false }) {
-  const png = new PNG({ width: VIEWPORT_W, height });
+function writeShot(file, {
+  cardHeight, markerColor, height = VIEWPORT_H, width = VIEWPORT_W, bottomBar = false, dpr = 1,
+}) {
+  const png = new PNG({ width, height });
+  // Layout is expressed in CSS pixels and scaled by dpr, mirroring a real
+  // deviceScaleFactor>1 capture: the same CSS geometry occupies dpr times as
+  // many device pixels.
+  const s = (v) => Math.round(v * dpr);
+  const cardLeft = s(CARD_LEFT), cardWidth = s(CARD_WIDTH), cardTop = s(CARD_TOP);
+  const cardH = s(cardHeight);
   for (let y = 0; y < height; y++) {
-    for (let x = 0; x < VIEWPORT_W; x++) {
-      const i = (y * VIEWPORT_W + x) * 4;
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
       const inCard =
-        x >= CARD_LEFT && x < CARD_LEFT + CARD_WIDTH && y >= CARD_TOP && y < CARD_TOP + cardHeight;
+        x >= cardLeft && x < cardLeft + cardWidth && y >= cardTop && y < cardTop + cardH;
       let r, g, b;
       if (inCard) {
         if ((x * 13 + y * 29) % 97 === 0) {
@@ -244,10 +252,13 @@ function writeShot(file, { cardHeight, markerColor, height = VIEWPORT_H, bottomB
     }
   }
   if (markerColor) {
-    const [bx, by, bw, bh] = BADGE_RECT;
+    // The marker is written in device pixels, so its on-image position stays
+    // aligned with the framework's dpr-scaled badge rectangle.
+    const bx = s(BADGE_RECT[0]), by = s(BADGE_RECT[1]);
+    const bw = s(BADGE_RECT[2]), bh = s(BADGE_RECT[3]);
     for (let y = by; y < by + bh; y++) {
       for (let x = bx; x < bx + bw; x++) {
-        const i = (y * VIEWPORT_W + x) * 4;
+        const i = (y * width + x) * 4;
         png.data[i] = markerColor[0];
         png.data[i + 1] = markerColor[1];
         png.data[i + 2] = markerColor[2];
@@ -257,10 +268,10 @@ function writeShot(file, { cardHeight, markerColor, height = VIEWPORT_H, bottomB
   if (bottomBar) {
     // A dark bar across the last rows of the card, so a crop that clips the
     // card's bottom edge can be detected by looking for it in the JPEG.
-    const y0 = Math.max(0, CARD_TOP + cardHeight - 4);
-    for (let y = y0; y < Math.min(height, CARD_TOP + cardHeight); y++) {
-      for (let x = CARD_LEFT; x < CARD_LEFT + CARD_WIDTH; x++) {
-        const i = (y * VIEWPORT_W + x) * 4;
+    const y0 = Math.max(0, cardTop + cardH - s(4));
+    for (let y = y0; y < Math.min(height, cardTop + cardH); y++) {
+      for (let x = cardLeft; x < cardLeft + cardWidth; x++) {
+        const i = (y * width + x) * 4;
         png.data[i] = 20; png.data[i + 1] = 20; png.data[i + 2] = 20;
       }
     }
@@ -275,10 +286,16 @@ function writeShot(file, { cardHeight, markerColor, height = VIEWPORT_H, bottomB
  */
 function writeShots(dir, {
   omitRects = false, frameworks = null, mutate = null, runId = 'fixture-run-a', meta = true,
-  viewport = null, imageHeight = VIEWPORT_H, populatedCardHeight = POPULATED_HEIGHT,
-  bottomBar = false, reportMutate = null,
+  viewport = null, imageHeight = null, populatedCardHeight = POPULATED_HEIGHT,
+  bottomBar = false, reportMutate = null, dpr = 1,
 } = {}) {
   const FW = frameworks || FRAMEWORKS;
+  // `dpr` scales both the images and the default declared viewport, so a
+  // positive DPR test produces a self-consistent set. When a caller overrides
+  // `viewport` with a mismatched DPR (the negative tests), the images stay at
+  // the `dpr` argument (default 1) so the size check still fails as intended.
+  const vp = viewport || { width: VIEWPORT_W, height: VIEWPORT_H, deviceScaleFactor: dpr };
+  const imageDpr = dpr;
   const report = {};
   FW.forEach((fw, idx) => {
     const markerColor = [60 + idx * 20, 130, 200 - idx * 15];
@@ -293,15 +310,17 @@ function writeShots(dir, {
       screenshots: [],
       captureRunId: runId,
       schema: 2,
-      viewport: viewport || { width: VIEWPORT_W, height: VIEWPORT_H, deviceScaleFactor: 1 },
+      viewport: vp,
     };
     for (const s of STATES) {
       const file = path.join(dir, fw, `${s}.png`);
       writeShot(file, {
         cardHeight: s === 'empty-state' ? EMPTY_HEIGHT : populatedCardHeight,
         markerColor,
-        height: imageHeight,
+        height: imageHeight === null ? Math.round(VIEWPORT_H * imageDpr) : imageHeight,
+        width: Math.round(VIEWPORT_W * imageDpr),
         bottomBar,
+        dpr: imageDpr,
       });
       report[fw].screenshots.push(`${fw}/${s}.png`);
       report[fw].labelRects[s] = omitRects
@@ -684,6 +703,47 @@ function pokePixel(file, x, y, channel, delta) {
       assert(/size 1440x1024 != expected 2880x2048/.test(res.stdout), `not reported: ${res.stdout}`);
     });
   }
+  {
+    // A genuinely higher-DPR capture is self-consistent: the report declares
+    // deviceScaleFactor 2 and the images are 2880x2048. The pixel masks, however,
+    // come from getBoundingClientRect() in CSS pixels, so they must be scaled to
+    // device pixels before masking — otherwise the framework-name marker shows
+    // through and identical layouts fail pixel parity.
+    const dir = tmpDir('pixel-dpr2');
+    writeShots(dir, { dpr: 2 });
+    await test('pixel-parity passes for a self-consistent DPR 2 capture', () => {
+      const res = run('python3', [path.join(DOCS, 'pixel-parity.py'), '--shots', dir]);
+      assert(res.status === 0, `exit ${res.status}:\n${res.stdout}`);
+    });
+  }
+  {
+    // The masks are still exact after scaling: a 1-unit change *outside* the
+    // scaled badge/footer rectangles must fail, so the scale did not quietly
+    // widen the tolerated region.
+    const dir = tmpDir('pixel-dpr2-outside');
+    writeShots(dir, { dpr: 2 });
+    pokePixel(path.join(dir, 'vue', 'all.png'), 200, 200, 0, 1);
+    await test('pixel-parity still fails on a difference outside the scaled masks at DPR 2', () => {
+      const res = run('python3', [path.join(DOCS, 'pixel-parity.py'), '--shots', dir]);
+      assert(res.status !== 0, `expected non-zero exit:\n${res.stdout}`);
+      assert(/vue/.test(res.stdout), `diverging framework not named: ${res.stdout}`);
+    });
+  }
+  {
+    // A report could declare one DPR while the image is rendered at another;
+    // the candidate must match its *own* declared DPR, not just the reference's
+    // size.
+    const dir = tmpDir('pixel-dpr-mismatch');
+    writeShots(dir);
+    const report = JSON.parse(fs.readFileSync(path.join(dir, 'screenshot-report.json'), 'utf8'));
+    report.vue.viewport.deviceScaleFactor = 2;
+    fs.writeFileSync(path.join(dir, 'screenshot-report.json'), JSON.stringify(report, null, 2));
+    await test('pixel-parity rejects a candidate whose image does not match its declared DPR', () => {
+      const res = run('python3', [path.join(DOCS, 'pixel-parity.py'), '--shots', dir]);
+      assert(res.status !== 0, `expected non-zero exit:\n${res.stdout}`);
+      assert(/vue/.test(res.stdout) && /DPR|expected/i.test(res.stdout), `unclear: ${res.stdout}`);
+    });
+  }
 
   // --- capture generations (finding 5) -------------------------------------
   console.log('\ncapture generation freshness');
@@ -821,6 +881,34 @@ function pokePixel(file, x, y, channel, delta) {
       const res = run('python3', [path.join(DOCS, 'pixel-parity.py'), '--shots', dir]);
       assert(res.status !== 0, 'expected non-zero exit');
       assert(/labelRects|rectangle/i.test(res.stdout), `unclear error: ${res.stdout}`);
+    });
+  }
+  {
+    // `npm run pixel` is documented as a standalone gate. A capture that recorded
+    // console/network failures must be rejected even when the images match — the
+    // CI sequence runs verify first, but the pixel checker cannot rely on that.
+    const dir = tmpDir('pixel-errors');
+    writeShots(dir, {
+      reportMutate: (fw, entry) => { if (fw === 'vue') entry.errors = ['http 404: /app.js']; },
+    });
+    await test('pixel-parity rejects a capture that recorded console/network errors', () => {
+      const res = run('python3', [path.join(DOCS, 'pixel-parity.py'), '--shots', dir]);
+      assert(res.status !== 0, `an erroring capture was confirmed:\n${res.stdout}`);
+      assert(/vue/.test(res.stdout) && /error/i.test(res.stdout), `unclear failure: ${res.stdout}`);
+      assert(!/PIXEL PARITY CONFIRMED/.test(res.stdout), 'erroring capture still reported parity');
+    });
+  }
+  {
+    // A missing `errors` array is itself a failure: the checker cannot verify a
+    // capture's health without it.
+    const dir = tmpDir('pixel-no-errors');
+    writeShots(dir, {
+      reportMutate: (fw, entry) => { if (fw === 'react') delete entry.errors; },
+    });
+    await test('pixel-parity rejects a report entry with no errors array', () => {
+      const res = run('python3', [path.join(DOCS, 'pixel-parity.py'), '--shots', dir]);
+      assert(res.status !== 0, `a missing errors array was accepted:\n${res.stdout}`);
+      assert(/errors list/i.test(res.stdout), `unclear failure: ${res.stdout}`);
     });
   }
   {
@@ -1333,6 +1421,84 @@ function pokePixel(file, x, y, channel, delta) {
       });
     } finally {
       await new Promise((resolve) => stale.close(resolve));
+    }
+  }
+
+  // --- 22: a second launch must not strand the first server -----------------
+  console.log('\nsecond-launch guard (finding 22)');
+  {
+    // A prior server runs on one port; a second launch of the same framework on
+    // a *different* port used to overwrite its state file, stranding the first
+    // server (stop-servers.sh could only ever see the newer record). The second
+    // launch must now refuse while the same framework has a verified live state.
+    const FIRST_OFFSET = 2100;                  // leptos -> 6104
+    const SECOND_OFFSET = 2200;                 // leptos -> 6204
+    const firstPort = 4004 + FIRST_OFFSET;
+    const secondPort = 4004 + SECOND_OFFSET;
+    const dist = path.join(ROOT, 'implementations', 'leptos', 'dist');
+    const createdDist = !fs.existsSync(dist);
+    if (createdDist) {
+      fs.mkdirSync(dist, { recursive: true });
+      fs.writeFileSync(path.join(dist, 'index.html'),
+        '<!doctype html><title>fixture</title><div class="todo-app">fixture</div>');
+    }
+    const logsDir = tmpDir('second-launch-logs');
+    const startScript = path.join(DOCS, 'scripts', 'start-servers.sh');
+    const stopScript = path.join(DOCS, 'scripts', 'stop-servers.sh');
+    try {
+      const first = run('bash',
+        [startScript, '--only', 'leptos', '--port-offset', String(FIRST_OFFSET), '--ready-timeout', '60'],
+        { env: { FB_LOGS_DIR: logsDir }, timeout: 120000 });
+      await test('the first launch of a framework starts and becomes ready', () => {
+        assert(first.status === 0, `first startup failed (exit ${first.status}):\n${first.stdout}${first.stderr}`);
+        assert(new RegExp(`leptos ready on ${firstPort}`).test(first.stdout),
+          `the first server never reported ready:\n${first.stdout}${first.stderr}`);
+      });
+
+      const statePath = path.join(logsDir, 'leptos.state');
+      const firstState = parseState(statePath);
+
+      const second = run('bash',
+        [startScript, '--only', 'leptos', '--port-offset', String(SECOND_OFFSET), '--ready-timeout', '15'],
+        { env: { FB_LOGS_DIR: logsDir }, timeout: 60000 });
+      await test('a second launch of the same framework refuses to start', () => {
+        assert(second.status !== 0, `a second launch was allowed (exit ${second.status}):\n${second.stdout}${second.stderr}`);
+        assert(/already running|already has|refusing to start a second instance/i.test(second.stdout + second.stderr),
+          `no clear refusal:\n${second.stdout}${second.stderr}`);
+        assert(!/starting leptos/.test(second.stdout),
+          `the second launch started a server anyway:\n${second.stdout}`);
+      });
+      await test('the second launch never serves its own port', async () => {
+        const up = await fetch(`http://127.0.0.1:${secondPort}/`).then(() => true).catch(() => false);
+        assert(!up, `the second port ${secondPort} is serving despite the refusal`);
+      });
+      await test("the first server's state record is untouched by the refusal", () => {
+        const after = parseState(statePath);
+        assert(after.pid === firstState.pid && after.run_token === firstState.run_token,
+          `the state record changed: ${JSON.stringify(firstState)} -> ${JSON.stringify(after)}`);
+      });
+      await test('the original server is still alive after the refused second launch', async () => {
+        const ok = await fetch(`http://127.0.0.1:${firstPort}/`).then((r) => r.ok).catch(() => false);
+        assert(ok, `the original port ${firstPort} stopped serving`);
+      });
+      await test('stop-servers.sh still stops the original server', () => {
+        const stopRes = run('bash', [stopScript], { env: { FB_LOGS_DIR: logsDir }, timeout: 30000 });
+        assert(stopRes.status === 0, `stop exit ${stopRes.status}:\n${stopRes.stdout}${stopRes.stderr}`);
+        assert(/stopping leptos/.test(stopRes.stdout),
+          `the original server was not stopped:\n${stopRes.stdout}${stopRes.stderr}`);
+      });
+      await test('the original port is freed after stop (no stranded server)', async () => {
+        const deadline = Date.now() + 5000;
+        let up = true;
+        while (Date.now() < deadline && up) {
+          up = await fetch(`http://127.0.0.1:${firstPort}/`).then(() => true).catch(() => false);
+          if (up) await new Promise((r) => setTimeout(r, 200));
+        }
+        assert(!up, `port ${firstPort} is still served after stop: a server was stranded`);
+      });
+    } finally {
+      run('bash', [stopScript], { env: { FB_LOGS_DIR: logsDir }, timeout: 30000 });
+      if (createdDist) fs.rmSync(dist, { recursive: true, force: true });
     }
   }
 
@@ -2090,7 +2256,70 @@ time.sleep(30)
       fs.writeFileSync(path.join(dir, 'docs', 'package.json'), JSON.stringify(pkg, null, 2));
       const res = run('node', [path.join(DOCS, 'check-node-version.js'), '--root', dir], { timeout: 30000 });
       assert(res.status !== 0, `a floor above this runtime was accepted:\n${res.stdout}${res.stderr}`);
-      assert(/>= 99\.0\.0/.test(res.stdout + res.stderr), `unclear failure: ${res.stdout}${res.stderr}`);
+      assert(/>=\s*99\.0\.0/.test(res.stdout + res.stderr), `unclear failure: ${res.stdout}${res.stderr}`);
+    });
+    await test('docs/package.json declares the same disjoint range as Angular', () => {
+      // Finding 2: the docs engine range must exclude Node 23/25 exactly like
+      // Angular CLI 22, or check:node passes on a runtime Angular then rejects.
+      const docsPkg = JSON.parse(fs.readFileSync(path.join(DOCS, 'package.json'), 'utf8'));
+      const angularPkg = JSON.parse(
+        fs.readFileSync(path.join(ROOT, 'implementations', 'angular', 'package.json'), 'utf8'));
+      const norm = (r) => String(r).replace(/\s+/g, '');
+      assert(norm(docsPkg.engines.node) === norm(angularPkg.engines.node),
+        `docs engines.node ${JSON.stringify(docsPkg.engines.node)} != angular ` +
+        `${JSON.stringify(angularPkg.engines.node)}`);
+      assert(/23/.test(docsPkg.engines.node) === false && /25/.test(docsPkg.engines.node) === false,
+        `the declared range still admits Node 23/25: ${docsPkg.engines.node}`);
+    });
+    await test('the shared range evaluator excludes Node 23 and 25 but accepts 22.22.3/24.15/26', () => {
+      // The gap is the whole point of the finding: a >=-minimum parser accepts
+      // Node 23, while the disjoint Angular range must reject it. Exercise the
+      // exact evaluator check-node-version.js uses.
+      const { satisfiesRange } = require(path.join(DOCS, 'lib', 'node-semver.js'));
+      const range = '^22.22.3 || ^24.15.0 || >=26.0.0';
+      assert(satisfiesRange('22.22.2', range) === false, 'Node 22.22.2 was accepted');
+      assert(satisfiesRange('22.22.3', range) === true, 'Node 22.22.3 was rejected');
+      assert(satisfiesRange('23.0.0', range) === false, 'Node 23.0.0 was accepted (the reported bug)');
+      assert(satisfiesRange('24.15.0', range) === true, 'Node 24.15.0 was rejected');
+      assert(satisfiesRange('25.0.0', range) === false, 'Node 25.0.0 was accepted');
+      assert(satisfiesRange('26.0.0', range) === true, 'Node 26.0.0 was rejected');
+    });
+  }
+
+  // --- results PRs must clear the visual-parity gate ------------------------
+  console.log('\nresults PR gating (finding 23)');
+  {
+    const autoMerge = fs.readFileSync(
+      path.join(ROOT, '.github', 'workflows', 'auto-merge-benchmark.yml'), 'utf8');
+    const benchmark = fs.readFileSync(
+      path.join(ROOT, '.github', 'workflows', 'benchmark-comprehensive.yml'), 'utf8');
+
+    await test('the merger requires Visual Parity alongside the dispatched CI', () => {
+      // REQUIRED_WORKFLOWS is a JSON array env value; parse it rather than
+      // substring-match so a reordering or a missing entry is caught.
+      const m = /REQUIRED_WORKFLOWS:\s*'(\[[^']*\])'/.exec(autoMerge);
+      assert(m, 'REQUIRED_WORKFLOWS env is missing or not a single-quoted JSON array');
+      const required = JSON.parse(m[1]);
+      assert(Array.isArray(required), 'REQUIRED_WORKFLOWS is not a JSON array');
+      for (const wf of ['Basic Checks', 'Frontend Benchmark CI', 'Visual Parity']) {
+        assert(required.includes(wf), `REQUIRED_WORKFLOWS does not require "${wf}": ${m[1]}`);
+      }
+    });
+
+    await test('the merger listens on workflow_run for Visual Parity too', () => {
+      // Without this, Visual Parity completing would not wake the merger (and a
+      // results PR could be evaluated before the gate finished).
+      const m = /workflows:\s*\[([^\]]*)\]/.exec(autoMerge);
+      assert(m, 'the workflow_run.workflows list is missing');
+      assert(/"Visual Parity"/.test(m[1]), `Visual Parity is not watched: ${m[1]}`);
+    });
+
+    await test('the benchmark dispatches Visual Parity for the results branch', () => {
+      assert(/gh workflow run visual-parity\.yml --ref "\$BRANCH_NAME"/.test(benchmark),
+        'benchmark-comprehensive.yml does not dispatch visual-parity.yml for the results branch');
+      assert(/gh workflow run basic-checks\.yml --ref "\$BRANCH_NAME"/.test(benchmark) &&
+             /gh workflow run benchmark\.yml --ref "\$BRANCH_NAME"/.test(benchmark),
+        'the original two dispatches were lost');
     });
   }
 

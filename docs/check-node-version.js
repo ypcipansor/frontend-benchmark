@@ -9,13 +9,16 @@
  * Angular CLI error later.
  *
  * The floor is not only Playwright's: the visual-parity job starts the Angular
- * 22 dev server, whose CLI requires `^22.22.3 || ^24.15.0 || >=26.0.0`, so the
- * declared minimum must be high enough for Angular too.
+ * 22 dev server, whose CLI requires `^22.22.3 || ^24.15.0 || >=26.0.0`. That
+ * range excludes Node 23 and 25, so the check must evaluate the *whole* declared
+ * range rather than only its `>=` minimum: a plain minimum would accept Node 23
+ * and then fail when Angular refuses to start.
  *
  * Usage: node docs/check-node-version.js [--root <dir>]
  */
 const fs = require('fs');
 const path = require('path');
+const { satisfiesRange } = require('./lib/node-semver');
 
 const argv = process.argv.slice(2);
 let root = path.resolve(__dirname, '..');
@@ -30,13 +33,6 @@ for (let i = 0; i < argv.length; i++) {
   }
 }
 
-/** Parse a simple `>=X[.Y[.Z]]` engines range into a numeric triple. */
-function parseMinimum(range) {
-  const m = /^\s*>=\s*(\d+)(?:\.(\d+))?(?:\.(\d+))?\s*$/.exec(range || '');
-  if (!m) return null;
-  return [Number(m[1]), Number(m[2] || 0), Number(m[3] || 0)];
-}
-
 const pkgPath = path.join(root, 'docs', 'package.json');
 let engines;
 try {
@@ -46,27 +42,31 @@ try {
   process.exit(1);
 }
 
-const min = parseMinimum(engines.node);
-if (!min) {
+const range = engines.node;
+if (!range) {
   console.error(
-    'check-node-version.js: docs/package.json engines.node must be a simple ' +
-    `">=X.Y.Z" range, found ${JSON.stringify(engines.node)}`
+    'check-node-version.js: docs/package.json engines.node is missing, so the ' +
+    'runtime requirement cannot be enforced.'
   );
   process.exit(1);
 }
 
-const current = process.versions.node.split('.').map(Number);
-for (let i = 0; i < 3; i++) {
-  if (current[i] > min[i]) break;
-  if (current[i] < min[i]) {
-    console.error(
-      `check-node-version.js: Node.js >= ${min.join('.')} is required for the docs ` +
-      `tooling (Playwright 1.63 and Angular CLI 22), but this is ${process.versions.node}.`
-    );
-    process.exit(1);
-  }
+const satisfied = satisfiesRange(process.versions.node, range);
+if (satisfied === null) {
+  console.error(
+    `check-node-version.js: docs/package.json engines.node ${JSON.stringify(range)} ` +
+    'is not a range this checker can parse.'
+  );
+  process.exit(1);
+}
+if (!satisfied) {
+  console.error(
+    `check-node-version.js: Node.js satisfying ${range} is required for the docs ` +
+    `tooling (Playwright 1.63 and Angular CLI 22), but this is ${process.versions.node}.`
+  );
+  process.exit(1);
 }
 console.log(
-  `Node.js ${process.versions.node} satisfies the >= ${min.join('.')} requirement ` +
-  `(docs/package.json engines.node = ${engines.node}).`
+  `Node.js ${process.versions.node} satisfies ${range} ` +
+  `(docs/package.json engines.node = ${range}).`
 );
