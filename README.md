@@ -120,19 +120,21 @@ The complete set of 35 captures, framework by framework. Full-resolution PNGs (1
 
 ## Benchmark Results
 
-*Last updated: 2026-09-16*
+*Last updated: 2026-09-28*
 
 > ⚠️ **Provenance:** Values below were collected across separate runs and environments and may not be directly comparable. A single, fresh, full 7-framework run in one environment is needed before rankings can be treated as authoritative.
 
+> 📐 **Comparability:** Throughput and memory figures are **not directly comparable across runs** when the runner/host or container resource limits change — a different CPU allocation, cgroup memory limit, or kernel changes the measured req/s and RSS substantially. Large swings versus a previous run (e.g. throughput or RSS dropping by more than half) usually indicate an environment change, not a framework regression. Compare only runs that share the Test Environment below.
+
 ### Quick Highlights
 
-- 🚀 **Top Lighthouse score:** Vue — **100/100**
-- 📦 **Smallest gzipped bundle:** blade — **1.29 KB**
-- ⚡ **Highest throughput:** Dioxus — **38,050 req/s** @ 2,000 connections
+- 🚀 **Top Lighthouse score:** React — **100/100**
+- 📦 **Smallest gzipped bundle:** blade — **1.32 KB**
+- ⚡ **Highest throughput:** Vue — **33,042 req/s** @ 2,000 connections
 
-- Top throughput (top 3): Dioxus (38,050 req/s), Vue (32,903 req/s), Leptos (32,434 req/s)
-- Top Lighthouse (top 3): Vue (100/100), Leptos (100/100), Angular (100/100)
-- Smallest bundles (top 3): blade (1.29 KB), vue (24.94 KB), react (58.32 KB)
+- Top throughput (top 3): Vue (33,042 req/s), Leptos (27,581 req/s), Dioxus (27,291 req/s)
+- Top Lighthouse (top 3): React (100/100), Vue (100/100), Angular (100/100)
+- Smallest bundles (top 3): blade (1.32 KB), vue (26.02 KB), react (68.18 KB)
 
 ---
 
@@ -140,67 +142,102 @@ The complete set of 35 captures, framework by framework. Full-resolution PNGs (1
 
 | Rank | Framework | Perf | FCP | LCP | TTI |
 |-----:|-----------|-----:|----:|----:|----:|
-| 1 | vue | **100/100** | 1053ms | 1204ms | 1179ms |
-| 2 | leptos | **100/100** | 906ms | 1582ms | 1244ms |
-| 3 | angular | **100/100** | 1212ms | 1589ms | 1394ms |
-| 4 | yew | **100/100** | 903ms | 1579ms | 1612ms |
-| 5 | react | **100/100** | 1203ms | 1354ms | 1203ms |
-| 6 | dioxus | **98/100** | 1205ms | 2408ms | 2450ms |
-| 7 | blade | **87/100** | 751ms | 751ms | 751ms |
+| 1 | react | **100/100** | 1352ms | 1352ms | 1352ms |
+| 2 | vue | **100/100** | 1051ms | 1261ms | 1321ms |
+| 3 | angular | **100/100** | 1352ms | 1741ms | 1763ms |
+| 4 | leptos | **100/100** | 902ms | 1502ms | 1535ms |
+| 5 | yew | **100/100** | 902ms | 1502ms | 1540ms |
+| 6 | blade | **100/100** | 752ms | 902ms | 902ms |
+| 7 | dioxus | **98/100** | 1201ms | 2401ms | 2501ms |
 
 ### Bundle Sizes (gzipped)
 
 | Rank | Framework | Bundle (gzipped) | Total Size |
 |-----:|-----------|------------------:|-----------:|
-| 1 | blade | 1.29 KB | 8.95 KB |
-| 2 | vue | 24.94 KB | 68.3 KB |
-| 3 | react | 58.32 KB | 191.81 KB |
-| 4 | angular | 61.31 KB | 187.37 KB |
-| 5 | yew | 75.57 KB | 268.4 KB |
-| 6 | leptos | 76.1 KB | 375.35 KB |
-| 7 | dioxus | 192.3 KB | 522.39 KB |
+| 1 | blade | 1.32 KB | 4.01 KB |
+| 2 | vue | 26.02 KB | 68.33 KB |
+| 3 | react | 68.18 KB | 220.9 KB |
+| 4 | angular | 68.26 KB | 213.06 KB |
+| 5 | yew | 77.88 KB | 279.65 KB |
+| 6 | leptos | 77.94 KB | 391.93 KB |
+| 7 | dioxus | 193.45 KB | 526.12 KB |
 
 ### Throughput
 
 | Rank | Framework | Peak Avg Req/s | p50 | p90 | p99 | Errors |
 |-----:|-----------|---------------:|----:|----:|----:|------:|
-| 1 | **Dioxus** | 38,050 | 100ms | 116ms | 148ms | 0 |
-| 2 | **Vue** | 32,903 | 201ms | 380ms | 3887ms | 664 |
-| 3 | **Leptos** | 32,434 | 214ms | 403ms | 3893ms | 486 |
-| 4 | **Angular** | 30,423 | 202ms | 284ms | 3914ms | 487 |
-| 5 | **Yew** | 30,126 | 211ms | 412ms | 3902ms | 443 |
-| 6 | **React** | 17,895 | 196ms | 295ms | 3892ms | 476 |
-| 7 | **Blade** | 303 | 2002ms | 2016ms | 7923ms | 13,600 |
+| 1 | **Vue** | 33,042 | 154ms | 212ms | 339ms | 0 |
+| 2 | **Leptos** | 27,581 | 145ms | 196ms | 340ms | 0 |
+| 3 | **Dioxus** | 27,291 | 153ms | 199ms | 331ms | 0 |
+| 4 | **Yew** | 27,153 | 149ms | 204ms | 326ms | 0 |
+| 5 | **Angular** | 21,813 | 154ms | 231ms | 326ms | 0 |
+| 6 | **React** | 17,005 | 152ms | 230ms | 331ms | 0 |
+| 7 | **Blade** | 2,256 | 142ms | 340ms | 522ms | 0 |
 
 ### Stress Test Summary
 
 | Rank | Framework | Peak Avg Req/s | Peak Concurrency | p50 | p90 | p99 | Errors | Non-2xx |
 |-----:|-----------|---------------:|----------------:|----:|----:|----:|------:|-------:|
-| 1 | dioxus | 38,050 | 2,000 | 100ms | 116ms | 148ms | 0 | 0 |
-| 2 | vue | 32,903 | 2,000 | 201ms | 380ms | 3887ms | 664 | 0 |
-| 3 | leptos | 32,434 | 2,000 | 214ms | 403ms | 3893ms | 486 | 0 |
-| 4 | angular | 30,423 | 2,000 | 202ms | 284ms | 3914ms | 487 | 0 |
-| 5 | yew | 30,126 | 2,000 | 211ms | 412ms | 3902ms | 443 | 0 |
-| 6 | react | 17,895 | 2,000 | 196ms | 295ms | 3892ms | 476 | 0 |
-| 7 | blade | 303 | 2,000 | 2002ms | 2016ms | 7923ms | 13,600 | 0 |
+| 1 | vue | 33,042 | 2,000 | 154ms | 212ms | 339ms | 0 | 0 |
+| 2 | leptos | 27,581 | 2,000 | 145ms | 196ms | 340ms | 0 | 0 |
+| 3 | dioxus | 27,291 | 2,000 | 153ms | 199ms | 331ms | 0 | 0 |
+| 4 | yew | 27,153 | 2,000 | 149ms | 204ms | 326ms | 0 | 0 |
+| 5 | angular | 21,813 | 2,000 | 154ms | 231ms | 326ms | 0 | 0 |
+| 6 | react | 17,005 | 2,000 | 152ms | 230ms | 331ms | 0 | 0 |
+| 7 | blade | 2,256 | 100 | 142ms | 340ms | 522ms | 0 | 0 |
 
 ### Runtime Resource Usage
 
+The first table is a **pre-audit idle sample**: the container is up with no traffic, captured for 30s *before* the Lighthouse audit runs. It measures baseline/startup footprint only — it is *not* representative of CPU or memory under load. (A separate under-load table is drawn from the stress-test run below.)
+
+**Idle container sampling (30s, no load, pre-Lighthouse)**
+
 | Framework | CPU (avg / max) | Memory (avg / max) |
 |-----------|----------------:|-------------------:|
-| vue | 1.80% / 5.20% | 58.60 MB / 75.20 MB |
-| react | 2.50% / 8.30% | 65.20 MB / 89.50 MB |
-| leptos | 2.80% / 7.50% | 35.20 MB / 48.50 MB |
-| yew | 3.20% / 9.10% | 42.80 MB / 55.30 MB |
-| angular | 4.20% / 12.50% | 78.40 MB / 102.30 MB |
-| blade | 5.50% / 15.80% | 52.30 MB / 68.50 MB |
-| dioxus | 62.82% / 162.92% | 6.89 MB / 11.20 MB |
+| react | 0.00% / 0.00% | 4.93 MB / 5.00 MB |
+| vue | 0.00% / 0.00% | 4.75 MB / 4.91 MB |
+| angular | 0.00% / 0.00% | 4.69 MB / 4.90 MB |
+| leptos | 0.00% / 0.00% | 4.72 MB / 4.87 MB |
+| yew | 0.00% / 0.00% | 4.65 MB / 4.65 MB |
+| dioxus | 0.00% / 0.00% | 4.68 MB / 4.89 MB |
+| blade | 0.00% / 0.01% | 19.25 MB / 19.25 MB |
+
+**Under load (highest-throughput stress sample per framework)**
+
+Each row is the framework's own peak sample; concurrency differs where a framework peaked below the maximum, so compare across rows with care.
+
+| Framework | Concurrency | CPU (avg / max) | Memory (avg / max) |
+|-----------|------------:|----------------:|-------------------:|
+| react | 2,000 | 127.16% / 139.57% | 17.41 MB / 21.22 MB |
+| vue | 2,000 | 125.22% / 141.60% | 14.74 MB / 15.19 MB |
+| angular | 2,000 | 126.07% / 143.41% | 17.71 MB / 20.52 MB |
+| leptos | 2,000 | 132.68% / 150.21% | 15.53 MB / 17.99 MB |
+| yew | 2,000 | 127.43% / 143.89% | 16.81 MB / 20.26 MB |
+| dioxus | 2,000 | 126.45% / 137.90% | 16.12 MB / 21.07 MB |
+| blade | 100 | 264.55% / 270.68% | 125.20 MB / 164.30 MB |
+
+### Test Environment
+
+| Item | Value |
+|------|-------|
+| Runner | ubuntu-latest (GitHub-hosted) |
+| CPU | 4 vCPU |
+| Memory | 15.61 GiB |
+| Node.js | v24.21.0 |
+| Browser (Lighthouse) | Chromium 153.0.8010.47 snap |
+| Docker Engine | 28.0.4 |
+| Load test tool | autocannon 8.0.0 (pipelining 1) |
+| Workflow run | https://github.com/ypcipansor/frontend-benchmark/actions/runs/36360569691 |
+
+> Raw results (`benchmarks/results/*.json`) are gitignored; they are uploaded as a 90-day workflow artifact. See the workflow run linked above.
 
 ---
 
 ### Testing Methodology
 
 All tests were performed using the included `benchmarks/scripts` runner and are reproducible with the Docker-based setup. Results will vary by environment.
+
+Throughput and latency are measured by `autocannon` (pipelining 1) at 100/500/1,000/2,000 concurrent connections for 30s per level. CPU/memory are sampled with `docker stats` both while idle and during the peak stress level, as labelled above.
 
 For detailed per-framework analysis and complete methodology, see [BENCHMARK_GUIDE.md](BENCHMARK_GUIDE.md).
 

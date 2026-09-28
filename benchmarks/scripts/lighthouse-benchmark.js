@@ -7,7 +7,9 @@
 
 const fs = require('fs');
 const path = require('path');
-const lighthouse = require('lighthouse');
+// Lighthouse v13 is ESM-only; the callable export is on `.default`.
+const lighthouseModule = require('lighthouse');
+const lighthouse = lighthouseModule.default || lighthouseModule;
 const chromeLauncher = require('chrome-launcher');
 
 const RESULTS_DIR = path.join(__dirname, '../results');

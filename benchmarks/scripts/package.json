@@ -10,6 +10,7 @@
     "benchmark:bundle": "node bundle-size.js",
     "benchmark:stress": "node stress-test.js",
     "merge-stress-results": "node merge-stress-results.js",
+    "capture-env": "node capture-environment.js",
     "report": "node generate-report.js",
     "report:clean": "node generate-report-clean.js",
     "update-readme": "node update-readme-results.js"
