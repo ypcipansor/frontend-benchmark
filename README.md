@@ -11,47 +11,35 @@
 
 ## Benchmark Results
 
-*Last updated: 2026-09-24*
+*Last updated: 2026-09-28*
 
 > ⚠️ **Provenance:** Values below were collected across separate runs and environments and may not be directly comparable. A single, fresh, full 7-framework run in one environment is needed before rankings can be treated as authoritative.
 
 > 📐 **Comparability:** Throughput and memory figures are **not directly comparable across runs** when the runner/host or container resource limits change — a different CPU allocation, cgroup memory limit, or kernel changes the measured req/s and RSS substantially. Large swings versus a previous run (e.g. throughput or RSS dropping by more than half) usually indicate an environment change, not a framework regression. Compare only runs that share the Test Environment below.
 
-> 🧪 **Harness version:** The stress-test figures below were collected **before the sampler fix** (the old fixed-iteration loop mixed idle readings into the load window). They are kept for continuity only and are **not a valid baseline** — a fresh run is required before comparing throughput against them.
-
 ### Quick Highlights
 
+- 🚀 **Top Lighthouse score:** React — **100/100**
 - 📦 **Smallest gzipped bundle:** blade — **1.32 KB**
-- ⚡ **Highest throughput:** Vue — **15,496 req/s** @ 2,000 connections
+- ⚡ **Highest throughput:** Dioxus — **31,358 req/s** @ 2,000 connections
 
-**Notes:**
-- React: Lighthouse audit unavailable (lighthouse is not a function) — see Test Environment and re-run.
-- Vue: Lighthouse audit unavailable (lighthouse is not a function) — see Test Environment and re-run.
-- Angular: Lighthouse audit unavailable (lighthouse is not a function) — see Test Environment and re-run.
-- Leptos: Lighthouse audit unavailable (lighthouse is not a function) — see Test Environment and re-run.
-- Yew: Lighthouse audit unavailable (lighthouse is not a function) — see Test Environment and re-run.
-- Dioxus: Lighthouse audit unavailable (lighthouse is not a function) — see Test Environment and re-run.
-- Blade: Lighthouse audit unavailable (lighthouse is not a function) — see Test Environment and re-run.
-
-- Top throughput (top 3): Vue (15,496 req/s), React (15,104 req/s), Dioxus (15,099 req/s)
-- Top Lighthouse (top 3): N/A this run (stale table shown below)
+- Top throughput (top 3): Dioxus (31,358 req/s), Leptos (29,493 req/s), Yew (26,407 req/s)
+- Top Lighthouse (top 3): React (100/100), Vue (100/100), Leptos (100/100)
 - Smallest bundles (top 3): blade (1.32 KB), vue (26.02 KB), react (68.18 KB)
 
 ---
 
 ### Lighthouse Performance
 
-_This run (2026-09-24) failed to produce Lighthouse results — the audit could not run. Showing the last valid results from **2026-09-16** instead. These stale values are not from the current run._
-
 | Rank | Framework | Perf | FCP | LCP | TTI |
 |-----:|-----------|-----:|----:|----:|----:|
-| 1 | vue | **100/100** | 1053ms | 1204ms | 1179ms |
-| 2 | leptos | **100/100** | 906ms | 1582ms | 1244ms |
-| 3 | angular | **100/100** | 1212ms | 1589ms | 1394ms |
-| 4 | yew | **100/100** | 903ms | 1579ms | 1612ms |
-| 5 | react | **100/100** | 1203ms | 1354ms | 1203ms |
-| 6 | dioxus | **98/100** | 1205ms | 2408ms | 2450ms |
-| 7 | blade | **87/100** | 751ms | 751ms | 751ms |
+| 1 | react | **100/100** | 1352ms | 1352ms | 1352ms |
+| 2 | vue | **100/100** | 1051ms | 1266ms | 1331ms |
+| 3 | leptos | **100/100** | 947ms | 1502ms | 1542ms |
+| 4 | yew | **100/100** | 902ms | 1502ms | 1543ms |
+| 5 | blade | **100/100** | 752ms | 902ms | 902ms |
+| 6 | angular | **99/100** | 1352ms | 1743ms | 1766ms |
+| 7 | dioxus | **98/100** | 1203ms | 2404ms | 2491ms |
 
 ### Bundle Sizes (gzipped)
 
@@ -61,33 +49,33 @@ _This run (2026-09-24) failed to produce Lighthouse results — the audit could 
 | 2 | vue | 26.02 KB | 68.33 KB |
 | 3 | react | 68.18 KB | 220.9 KB |
 | 4 | angular | 68.26 KB | 213.06 KB |
-| 5 | yew | 77.99 KB | 280.11 KB |
-| 6 | leptos | 78.24 KB | 392.55 KB |
-| 7 | dioxus | 193.69 KB | 526.42 KB |
+| 5 | yew | 77.88 KB | 279.65 KB |
+| 6 | leptos | 77.94 KB | 391.93 KB |
+| 7 | dioxus | 193.45 KB | 526.12 KB |
 
 ### Throughput
 
 | Rank | Framework | Peak Avg Req/s | p50 | p90 | p99 | Errors |
 |-----:|-----------|---------------:|----:|----:|----:|------:|
-| 1 | **Vue** | 15,496 | 93ms | 1779ms | 3696ms | 0 |
-| 2 | **React** | 15,104 | 103ms | 1762ms | 3685ms | 0 |
-| 3 | **Dioxus** | 15,099 | 95ms | 1788ms | 3696ms | 0 |
-| 4 | **Yew** | 14,566 | 93ms | 1854ms | 3696ms | 0 |
-| 5 | **Leptos** | 12,871 | 97ms | 1872ms | 3681ms | 0 |
-| 6 | **Angular** | 12,153 | 99ms | 1872ms | 3699ms | 0 |
-| 7 | **Blade** | 316 | 2000ms | 2016ms | 7776ms | 3,700 |
+| 1 | **Dioxus** | 31,358 | 152ms | 196ms | 351ms | 0 |
+| 2 | **Leptos** | 29,493 | 142ms | 181ms | 343ms | 0 |
+| 3 | **Yew** | 26,407 | 152ms | 236ms | 337ms | 0 |
+| 4 | **Vue** | 25,108 | 157ms | 216ms | 346ms | 0 |
+| 5 | **Angular** | 19,957 | 152ms | 233ms | 341ms | 0 |
+| 6 | **React** | 18,852 | 155ms | 245ms | 342ms | 0 |
+| 7 | **Blade** | 2,257 | 149ms | 345ms | 493ms | 0 |
 
 ### Stress Test Summary
 
 | Rank | Framework | Peak Avg Req/s | Peak Concurrency | p50 | p90 | p99 | Errors | Non-2xx |
 |-----:|-----------|---------------:|----------------:|----:|----:|----:|------:|-------:|
-| 1 | vue | 15,496 | 2,000 | 93ms | 1779ms | 3696ms | 0 | 0 |
-| 2 | react | 15,104 | 2,000 | 103ms | 1762ms | 3685ms | 0 | 0 |
-| 3 | dioxus | 15,099 | 2,000 | 95ms | 1788ms | 3696ms | 0 | 0 |
-| 4 | yew | 14,566 | 2,000 | 93ms | 1854ms | 3696ms | 0 | 0 |
-| 5 | leptos | 12,871 | 2,000 | 97ms | 1872ms | 3681ms | 0 | 0 |
-| 6 | angular | 12,153 | 2,000 | 99ms | 1872ms | 3699ms | 0 | 0 |
-| 7 | blade | 316 | 2,000 | 2000ms | 2016ms | 7776ms | 3,700 | 0 |
+| 1 | dioxus | 31,358 | 2,000 | 152ms | 196ms | 351ms | 0 | 0 |
+| 2 | leptos | 29,493 | 2,000 | 142ms | 181ms | 343ms | 0 | 0 |
+| 3 | yew | 26,407 | 2,000 | 152ms | 236ms | 337ms | 0 | 0 |
+| 4 | vue | 25,108 | 2,000 | 157ms | 216ms | 346ms | 0 | 0 |
+| 5 | angular | 19,957 | 2,000 | 152ms | 233ms | 341ms | 0 | 0 |
+| 6 | react | 18,852 | 2,000 | 155ms | 245ms | 342ms | 0 | 0 |
+| 7 | blade | 2,257 | 100 | 149ms | 345ms | 493ms | 0 | 0 |
 
 ### Runtime Resource Usage
 
@@ -97,13 +85,13 @@ The first table is a **pre-audit idle sample**: the container is up with no traf
 
 | Framework | CPU (avg / max) | Memory (avg / max) |
 |-----------|----------------:|-------------------:|
-| react | 0.00% / 0.00% | 4.97 MB / 4.98 MB |
-| vue | 0.00% / 0.00% | 4.69 MB / 4.82 MB |
-| angular | 0.00% / 0.00% | 4.80 MB / 5.35 MB |
-| leptos | 0.00% / 0.00% | 5.05 MB / 5.41 MB |
-| yew | 0.00% / 0.00% | 4.70 MB / 5.03 MB |
-| dioxus | 0.00% / 0.00% | 4.84 MB / 5.19 MB |
-| blade | 0.01% / 0.01% | 18.78 MB / 19.02 MB |
+| react | 0.00% / 0.00% | 4.92 MB / 5.09 MB |
+| vue | 0.00% / 0.00% | 4.70 MB / 4.82 MB |
+| angular | 0.00% / 0.00% | 4.73 MB / 4.89 MB |
+| leptos | 0.00% / 0.00% | 5.13 MB / 5.41 MB |
+| yew | 0.00% / 0.00% | 5.05 MB / 5.27 MB |
+| dioxus | 0.00% / 0.00% | 4.89 MB / 5.32 MB |
+| blade | 0.01% / 0.01% | 18.72 MB / 18.90 MB |
 
 **Under load (highest-throughput stress sample per framework)**
 
@@ -111,26 +99,26 @@ Each row is the framework's own peak sample; concurrency differs where a framewo
 
 | Framework | Concurrency | CPU (avg / max) | Memory (avg / max) |
 |-----------|------------:|----------------:|-------------------:|
-| react | 2,000 | 0.17% / 6.58% | 6.06 MB / 14.39 MB |
-| vue | 2,000 | 0.31% / 8.33% | 6.31 MB / 14.23 MB |
-| angular | 2,000 | 0.09% / 5.60% | 6.25 MB / 14.23 MB |
-| leptos | 2,000 | 0.17% / 7.12% | 6.32 MB / 14.43 MB |
-| yew | 2,000 | 0.16% / 7.94% | 6.32 MB / 14.25 MB |
-| dioxus | 2,000 | 0.21% / 6.70% | 6.20 MB / 14.25 MB |
-| blade | 2,000 | 1.18% / 80.78% | 92.36 MB / 185.40 MB |
+| react | 2,000 | 125.98% / 140.93% | 17.34 MB / 19.21 MB |
+| vue | 2,000 | 124.48% / 140.35% | 17.19 MB / 19.96 MB |
+| angular | 2,000 | 126.40% / 138.46% | 16.35 MB / 19.49 MB |
+| leptos | 2,000 | 129.82% / 142.48% | 14.92 MB / 15.38 MB |
+| yew | 2,000 | 123.63% / 138.35% | 16.73 MB / 19.44 MB |
+| dioxus | 2,000 | 129.59% / 139.04% | 15.32 MB / 16.89 MB |
+| blade | 100 | 262.50% / 270.28% | 126.61 MB / 164.50 MB |
 
 ### Test Environment
 
 | Item | Value |
 |------|-------|
-| Runner | ubuntu-latest (ubuntu-24.04.5 LTS), GitHub-hosted |
+| Runner | ubuntu-latest (GitHub-hosted) |
 | CPU | 4 vCPU |
 | Memory | 15.61 GiB |
-| Node.js | 24 (v24.21.0) |
-| Browser (Lighthouse) | Chromium 153.0.8010.36 |
-| Docker Engine | 28.0.4 (containerd 2.3.5, runc 1.5.1) |
-| Load test tool | autocannon 8.x (pipelining 1) |
-| Workflow run | https://github.com/ypcipansor/frontend-benchmark/actions/runs/35998087756 |
+| Node.js | v24.21.0 |
+| Browser (Lighthouse) | Chromium 153.0.8010.47 snap |
+| Docker Engine | 28.0.4 |
+| Load test tool | autocannon 8.0.0 (pipelining 1) |
+| Workflow run | https://github.com/ypcipansor/frontend-benchmark/actions/runs/36365635089 |
 
 > Raw results (`benchmarks/results/*.json`) are gitignored; they are uploaded as a 90-day workflow artifact. See the workflow run linked above.
 
