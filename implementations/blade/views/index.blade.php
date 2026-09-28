@@ -211,13 +211,13 @@
                                     class="todo-checkbox"
                                     ${todo.completed ? 'checked' : ''}
                                     onchange="toggleTodo(${todo.id})"
-                                    aria-label="Toggle ${todo.text}"
+                                    aria-label="Toggle ${escapeAttr(todo.text)}"
                                 />
                                 <span class="todo-text">${escapeHtml(todo.text)}</span>
                                 <button
                                     class="btn btn-delete"
                                     onclick="deleteTodo(${todo.id})"
-                                    aria-label="Delete ${todo.text}"
+                                    aria-label="Delete ${escapeAttr(todo.text)}"
                                 >
                                     Delete
                                 </button>
@@ -233,6 +233,17 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        // Escape a value for a double-quoted attribute. The text-content escaper
+        // above leaves quotes alone, so a crafted todo text would break out of
+        // the aria-label attribute and inject markup when interpolated.
+        function escapeAttr(text) {
+            return String(text)
+                .replace(/&/g, '&amp;')
+                .replace(/"/g, '&quot;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
         }
 
         // Handle Enter key

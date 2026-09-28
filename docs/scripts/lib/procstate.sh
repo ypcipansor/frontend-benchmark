@@ -230,8 +230,14 @@ verify_group_by_session() {
   for d in /proc/[0-9]*; do
     [ -d "$d" ] || continue
     pid="${d#/proc/}"
-    pg="$(proc_stat_field "$pid" pgrp)" || return 1
+    # A PID can exit between the /proc enumeration and this read. At this point
+    # group membership is not yet established, so an unreadable stat means the
+    # process is simply gone -- skip it. Failing here would abort the scan on an
+    # unrelated short-lived process and strand a live member of *our* group.
+    pg="$(proc_stat_field "$pid" pgrp)" || continue
     [ "$pg" = "$pgid" ] || continue
+    # From here the PID is a proven member of the target group, so a failed
+    # identity read is genuinely unverifiable and must fail closed.
     state="$(proc_stat_field "$pid" state)" || return 1
     [ "$state" = "Z" ] && continue
     member_session="$(proc_stat_field "$pid" session)" || return 1

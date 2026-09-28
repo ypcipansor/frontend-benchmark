@@ -69,14 +69,26 @@ function satisfiesRange(versionString, range) {
 }
 
 /**
- * A `node-version: '24'` pin selects the newest 24.x, not exactly 24.0.0, so it
- * is compared as the top of that major when only a major is given.
+ * A `node-version: '24'` pin makes setup-node install the newest 24.x, but which
+ * 24.x that is depends on the day the job runs, so the pin stands for *every*
+ * version in that major. Checking only the top of the major would accept a pin
+ * whose lowest release does not meet the floor, so return both ends of the range
+ * the pin denotes (a fully-qualified pin denotes a single version).
  */
-function pinTriple(value) {
+function pinVersions(value) {
   const raw = String(value).trim().replace(/^v/, '');
-  const majorOnly = /^\d+$/.test(raw);
-  if (majorOnly) return [Number(raw), 999, 999];
-  return parseVersion(raw);
+  if (/^\d+$/.test(raw)) {
+    const major = Number(raw);
+    return [[major, 0, 0], [major, 999, 999]];
+  }
+  const exact = parseVersion(raw);
+  return exact ? [exact] : null;
 }
 
-module.exports = { parseVersion, compare, satisfiesRange, satisfiesRangeTriple, pinTriple };
+/** Kept for callers that want a single representative triple for a pin. */
+function pinTriple(value) {
+  const versions = pinVersions(value);
+  return versions ? versions[versions.length - 1] : null;
+}
+
+module.exports = { parseVersion, compare, satisfiesRange, satisfiesRangeTriple, pinVersions, pinTriple };

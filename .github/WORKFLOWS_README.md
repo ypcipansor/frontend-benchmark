@@ -138,7 +138,14 @@ docker compose config
 Recommended settings for `main`:
 1. ✅ Require status checks to pass
 2. ✅ Select: "All Basic Checks Passed"
-3. ✅ Require branches to be up to date
+3. ✅ Select: "Capture / verify / parity / pixel" (the **Visual Parity** job)
+4. ✅ Require branches to be up to date
+
+> **Visual Parity must be a required status check.** The results-PR auto-merger
+> enforces it for benchmark-results PRs, but ordinary PRs rely on branch
+> protection: without it here, a normal PR could merge before the
+> capture/verify/parity/pixel gate has run. Branch protection is a repository
+> setting (not a file), so it is listed here to keep the two in sync.
 
 ### Artifact Retention
 

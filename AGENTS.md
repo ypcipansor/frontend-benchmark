@@ -170,6 +170,31 @@ regression test appends a byte to a copy and proves the check rejects it, so the
   the id, so it was removed and Blade's copy is now byte-identical.
 - **Completion is 1-based.** Use `(i + 1) % 3 === 0` so items 3, 6, …, 99 are
   completed (33 completed, 67 remaining).
+- **A todo text in an attribute needs attribute escaping, not text escaping.**
+  Blade renders the client-side list with `innerHTML`, and interpolates each
+  todo's text into a double-quoted `aria-label`. `escapeHtml()` (the
+  `div.textContent` trick) escapes for *text* content and leaves quotes alone, so
+  a crafted text breaks out of the attribute and executes. Use `escapeAttr()`
+  (escapes `& " < >`) for any interpolated attribute value. A regression test
+  drives a real browser over a fixture that reproduces the vulnerable renderer on
+  demand, so the bug cannot come back unnoticed.
+- **`stop-servers.sh` must survive a PID that exits mid-scan.** The
+  "leader dead, group alive" path walks all of `/proc`; a process that vanishes
+  between the directory listing and its `stat` read is *normal* and must be
+  skipped, not treated as unverifiable. Failing the whole scan on an unrelated
+  short-lived process quarantines the record and strands the real orphan on its
+  port. Only an unreadable identity for a process already proven to be in the
+  target group may fail closed.
+- **Workflow Node pins are explicit versions.** `check-node-engines.js` treats a
+  bare `node-version: "24"` as the whole 24.x range, because setup-node may
+  install any of it; a major whose lowest release is below the engine floor is
+  rejected. Keep the pins as `x.y.z` so the guarantee is exact, and remember the
+  docs/Angular engine range (`^22.22.3 || ^24.15.0 || >=26.0.0`) deliberately
+  excludes Node 23 and 25.
+- **The screenshot verifier rejects unexpected files.** Completeness is not just
+  "the five states exist": a stray non-PNG file or a sixth PNG in a framework
+  directory fails the run, so a directory holding more than the contract states
+  cannot pass.
 - **Documented commands must be reproducible.** Every documented `update-readme`
   invocation in any Markdown file must name `benchmarks/scripts` as its working
   directory (an inline `cd benchmarks/scripts && npm run update-readme`, or a

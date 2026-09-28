@@ -302,7 +302,13 @@ function main() {
   for (const fw of frameworks) {
     const dir = path.join(opts.dir, fw);
     if (!fs.existsSync(dir)) continue;
-    const files = fs.readdirSync(dir).filter((f) => f.endsWith('.png')).sort();
+    // Every entry in the directory is inspected, not only the *.png ones: a
+    // stray non-PNG file (or a nested directory) would otherwise be ignored and
+    // a directory holding more than the five expected states would still pass.
+    const dirents = fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1));
+    const nonFiles = dirents.filter((d) => !d.isFile()).map((d) => d.name);
+    const files = dirents.filter((d) => d.isFile() && d.name.endsWith('.png')).map((d) => d.name);
+    const nonPng = dirents.filter((d) => d.isFile() && !d.name.endsWith('.png')).map((d) => d.name);
     const missingState = STATES.filter((s) => !files.includes(`${s}.png`));
     const extra = files.filter((f) => !STATES.includes(f.replace('.png', '')));
     console.log(`\n${fw} (${files.length} screenshots)`);
@@ -313,6 +319,14 @@ function main() {
     if (extra.length) {
       failures++;
       console.log(`  FAIL unexpected file(s): ${extra.join(', ')}`);
+    }
+    if (nonPng.length) {
+      failures++;
+      console.log(`  FAIL unexpected non-PNG file(s): ${nonPng.join(', ')}`);
+    }
+    if (nonFiles.length) {
+      failures++;
+      console.log(`  FAIL unexpected non-file entr(ies): ${nonFiles.join(', ')}`);
     }
 
     cardHeights[fw] = {};

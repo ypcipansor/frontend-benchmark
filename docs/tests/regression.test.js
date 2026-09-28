@@ -35,6 +35,15 @@
  *     a process the run launched that dies before ready still fails
  * 18. every documented `npm run update-readme` names its working directory, and
  *     the checker rejects a bare command (see docs/check-doc-commands.js)
+ * 19. the verifier rejects a stray non-PNG file or a sixth PNG in a framework
+ *     directory (completeness is not limited to the *.png it expects)
+ * 20. a bare `node-version: "24"` pin is rejected when its lowest release is
+ *     below the engine floor, and every workflow pin is an explicit x.y.z
+ * 21. a todo text interpolated into a double-quoted attribute is neutralised
+ *     (the Blade aria-label XSS), proven in a real browser against a fixture
+ *     that reproduces the vulnerable renderer on demand
+ * 22. a transient unrelated process exit during the orphan-group scan does not
+ *     abort the stop and strand a live server on its port
  *
  * Every fixture is synthetic and self-contained: no test reads
  * docs/screenshots/, so the suite runs on a clean checkout (and with the
@@ -636,6 +645,30 @@ function pokePixel(file, x, y, channel, delta) {
     await test('verify passes for a complete, error-free set', () => {
       const res = run('node', [path.join(DOCS, 'verify-screenshots.js'), '--dir', dir]);
       assert(res.status === 0, `exit ${res.status}: ${res.stdout}`);
+    });
+  }
+  {
+    // A directory holding more than the five expected states, or any stray
+    // non-PNG file, must fail: the completeness check cannot silently ignore
+    // files it did not expect. Only *.png used to be enumerated.
+    const dir = tmpDir('verify-extra-file');
+    writeShots(dir);
+    fs.writeFileSync(path.join(dir, 'react', 'notes.txt'), 'stray');
+    await test('verify rejects a stray non-PNG file in a framework directory', () => {
+      const res = run('node', [path.join(DOCS, 'verify-screenshots.js'), '--dir', dir]);
+      assert(res.status !== 0, `expected non-zero exit:\n${res.stdout}`);
+      assert(/notes\.txt/.test(res.stdout), `the stray file was not named: ${res.stdout}`);
+    });
+  }
+  {
+    const dir = tmpDir('verify-extra-png');
+    writeShots(dir);
+    // A sixth PNG that is not one of the five contract states.
+    fs.copyFileSync(path.join(dir, 'react', 'all.png'), path.join(dir, 'react', 'extra-state.png'));
+    await test('verify rejects a sixth PNG beyond the five states', () => {
+      const res = run('node', [path.join(DOCS, 'verify-screenshots.js'), '--dir', dir]);
+      assert(res.status !== 0, `expected non-zero exit:\n${res.stdout}`);
+      assert(/extra-state\.png/.test(res.stdout), `the extra PNG was not named: ${res.stdout}`);
     });
   }
   {
@@ -2100,6 +2133,126 @@ time.sleep(30)
     }
   }
 
+  // --- attribute-context escaping (Blade aria-label XSS) --------------------
+  {
+    // The Blade app interpolated a todo's text straight into a double-quoted
+    // aria-label inside innerHTML. Its escapeHtml() escapes for *text* content
+    // and leaves quotes alone, so a crafted text broke out of the attribute and
+    // executed. This drives a real browser over the fixture, which reproduces
+    // the vulnerable renderer on demand, to prove the difference: the text
+    // escaper is exploitable, the attribute escaper is not.
+    const { chromium } = require('playwright');
+    const ATTACK = 'x" onmouseover="window.__xss=1';
+    // Playwright's bundled Chromium is the default; a sandbox without it (or
+    // with a system browser) can point FB_CHROMIUM_EXECUTABLE at one.
+    const launchOpts = { args: ['--no-sandbox'] };
+    if (process.env.FB_CHROMIUM_EXECUTABLE) launchOpts.executablePath = process.env.FB_CHROMIUM_EXECUTABLE;
+    const browser = await chromium.launch(launchOpts);
+
+    const runAttack = async (flags) => {
+      const server = await startFixture(flags);
+      const page = await browser.newPage();
+      try {
+        await page.goto(`http://127.0.0.1:${FIXTURE_PORT}/`, { waitUntil: 'load' });
+        await page.fill('.todo-input', ATTACK);
+        await page.click('.btn-primary');
+        // The payload only fires if it became a real event-handler attribute; a
+        // synthetic dispatchEvent does not run an inline handler, so hover.
+        await page.hover('.todo-checkbox');
+        return await page.evaluate(() => window.__xss === 1);
+      } finally {
+        await page.close();
+        await stopFixture(server);
+      }
+    };
+
+    try {
+      await test('the attribute escaper neutralises a quote-breaking todo text', async () => {
+        const fired = await runAttack({});
+        assert(fired === false, 'a crafted todo text executed script despite attribute escaping');
+      });
+      await test('the text-only escaper is exploitable (the reported Blade bug)', async () => {
+        const fired = await runAttack({ vulnerableAriaLabel: true });
+        assert(fired === true,
+          'the reproduction did not execute: the fixture no longer models the vulnerability');
+      });
+    } finally {
+      await browser.close();
+    }
+  }
+
+  // --- transient unrelated exits must not abort the orphan scan -------------
+  {
+    // The "leader dead, group alive" scan walks all of /proc. A PID that exits
+    // between the directory enumeration and its stat read used to fail the whole
+    // scan (return 1), so stop-servers.sh quarantined the record and left the
+    // orphan child holding its port. An *unrelated* short-lived process must
+    // never have that effect; only an unreadable identity for a proven member of
+    // the target group may fail closed.
+    const logsDir = tmpDir('transient-logs');
+    const port = 4193;
+    const state = path.join(logsDir, 'fixture.state');
+    const child = spawn(
+      'setsid',
+      ['bash', path.join(DOCS, 'scripts', 'lib', 'serve.sh'), state, 'tok', 'bash', '-c', `
+        python3 -c '
+import signal, socket
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+s = socket.socket()
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(("127.0.0.1", ${port}))
+s.listen(5)
+while True:
+    c, _ = s.accept()
+    c.close()
+' &
+        child=$!
+        trap 'exit 0' TERM
+        wait "$child"
+      `],
+      { stdio: 'ignore' }
+    );
+    let churn = null;
+    try {
+      await waitForTcp(port);
+      const deadline = Date.now() + 5000;
+      while (!fs.existsSync(state) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+      process.kill(child.pid, 'SIGKILL');
+      await new Promise((r) => setTimeout(r, 500));
+
+      await test('precondition: the port is held by the orphan after the leader dies', async () => {
+        assert(await tcpOpen(port), 'the orphan child did not hold the port');
+      });
+
+      // Churn: spawn very short-lived, unrelated processes throughout the scan.
+      // A PID that vanishes mid-scan used to abort it.
+      const stopScript = path.join(DOCS, 'scripts', 'stop-servers.sh');
+      churn = spawn('bash', ['-c', 'while :; do /bin/true; /bin/true; done'], { stdio: 'ignore' });
+      const res = run('bash', [stopScript], { env: { FB_LOGS_DIR: logsDir }, timeout: 30000 });
+      await test('a transient unrelated exit does not abort the orphan-group stop', () => {
+        assert(res.status === 0, `exit ${res.status}: ${res.stdout}${res.stderr}`);
+        assert(/stopping fixture/.test(res.stdout),
+          `the orphan group was not stopped: ${res.stdout}${res.stderr}`);
+        assert(!/refusing to signal fixture/.test(res.stdout + res.stderr),
+          `the orphan group was wrongly quarantined: ${res.stdout}${res.stderr}`);
+      });
+      await test('the orphan child is gone and the port is free despite the churn', async () => {
+        const dl = Date.now() + 8000;
+        let up = true;
+        while (Date.now() < dl && up) {
+          up = await tcpOpen(port);
+          if (up) await new Promise((r) => setTimeout(r, 200));
+        }
+        assert(!up, `port ${port} is still held: the orphan child survived`);
+      });
+    } finally {
+      if (churn) { try { churn.kill('SIGKILL'); } catch { /* gone */ } }
+      try { process.kill(-child.pid, 'SIGKILL'); } catch { /* already gone */ }
+      try { child.kill('SIGKILL'); } catch { /* already gone */ }
+      run('bash', [path.join(DOCS, 'scripts', 'stop-servers.sh')], { env: { FB_LOGS_DIR: logsDir }, timeout: 30000 });
+    }
+  }
+
   // --- serve.sh records an unraced identity from inside the new session -----
   {
     // start-servers.sh launches the server through serve.sh under setsid and
@@ -2229,8 +2382,7 @@ time.sleep(30)
       assert(res.status !== 0, `a Node 20 pin was accepted:\n${res.stdout}${res.stderr}`);
       assert(/Node 20/.test(res.stdout + res.stderr), `unclear failure: ${res.stdout}${res.stderr}`);
     });
-    await test('the checker accepts a workflow that pins Node 24', () => {
-      const dir = tmpDir('node-engines-ok');
+    const makePinRepo = (dir, version) => {
       fs.mkdirSync(path.join(dir, '.github', 'workflows'), { recursive: true });
       fs.mkdirSync(path.join(dir, 'docs'), { recursive: true });
       fs.mkdirSync(path.join(dir, 'implementations', 'angular'), { recursive: true });
@@ -2241,10 +2393,46 @@ time.sleep(30)
       );
       fs.writeFileSync(
         path.join(dir, '.github', 'workflows', 'x.yml'),
-        'name: x\njobs:\n  a:\n    steps:\n      - uses: actions/setup-node@v4\n        with:\n          node-version: "24"\n'
+        `name: x\njobs:\n  a:\n    steps:\n      - uses: actions/setup-node@v4\n        with:\n          node-version: "${version}"\n`
       );
+    };
+    await test('the checker accepts a workflow that pins the exact Node floor (24.15.0)', () => {
+      const dir = tmpDir('node-engines-ok');
+      makePinRepo(dir, '24.15.0');
       const res = run('node', [checker, '--root', dir], { timeout: 30000 });
-      assert(res.status === 0, `a Node 24 pin was rejected:\n${res.stdout}${res.stderr}`);
+      assert(res.status === 0, `a Node 24.15.0 pin was rejected:\n${res.stdout}${res.stderr}`);
+    });
+    await test('the checker rejects a bare major pin whose lowest release is below the floor', () => {
+      // `node-version: "24"` can install any 24.x, including 24.0.0, which does
+      // not satisfy `^24.15.0`. Checking only the top of the major would accept
+      // it, so the pin must be rejected (or written as an explicit version).
+      const dir = tmpDir('node-engines-baremajor');
+      makePinRepo(dir, '24');
+      const res = run('node', [checker, '--root', dir], { timeout: 30000 });
+      assert(res.status !== 0, `a bare "24" pin was accepted:\n${res.stdout}${res.stderr}`);
+      assert(/24\.0\.0|does not satisfy/.test(res.stdout + res.stderr), `unclear failure: ${res.stdout}${res.stderr}`);
+    });
+    await test('a bare major pin denotes both ends of its range', () => {
+      const { pinVersions } = require(path.join(DOCS, 'lib', 'node-semver.js'));
+      assert(JSON.stringify(pinVersions('24')) === JSON.stringify([[24, 0, 0], [24, 999, 999]]),
+        `pinVersions('24') = ${JSON.stringify(pinVersions('24'))}`);
+      assert(JSON.stringify(pinVersions('24.15.0')) === JSON.stringify([[24, 15, 0]]),
+        `pinVersions('24.15.0') = ${JSON.stringify(pinVersions('24.15.0'))}`);
+    });
+    await test('every workflow pin is a fully-qualified version the checker can prove', () => {
+      // With a bare major the check can only prove the whole major satisfies the
+      // floor; pinning an explicit version makes the guarantee exact. Keep the
+      // workflows on explicit versions.
+      for (const name of fs.readdirSync(path.join(ROOT, '.github', 'workflows'))) {
+        if (!/\.ya?ml$/.test(name)) continue;
+        const text = fs.readFileSync(path.join(ROOT, '.github', 'workflows', name), 'utf8');
+        for (const line of text.split('\n')) {
+          const m = /^\s*node-version:\s*['"]?([^'"\s#]+)['"]?\s*(?:#.*)?$/.exec(line);
+          if (!m) continue;
+          assert(/^\d+\.\d+\.\d+$/.test(m[1]),
+            `${name} pins Node ${m[1]}; pin an explicit x.y.z version so the floor is provable`);
+        }
+      }
     });
     await test('check-node-version.js fails when the engine floor is above this runtime', () => {
       // Prove the floor is enforced from docs/package.json, not hardcoded: a

@@ -168,14 +168,20 @@ intentionally **gitignored**: the CI job regenerates
 # Clone the repository
 git clone https://github.com/ypcipansor/frontend-benchmark.git
 cd frontend-benchmark
-
-# Navigate to a specific implementation
-cd implementations/react
-
-# Follow the README in that directory
-npm install
-npm run dev
 ```
+
+Then, for the implementation you are working on, open a **separate terminal**
+and run its commands from the repository root — the subshell keeps the working
+directory unchanged, so the snippets can be run one after another (or several at
+once) without paths drifting:
+
+```bash
+# React (replace "react" with vue, angular, leptos, yew, dioxus or blade)
+(cd implementations/react && npm install && npm run dev)
+```
+
+Follow the README in `implementations/<framework>/` for framework-specific
+steps.
 
 ## Testing Your Changes
 

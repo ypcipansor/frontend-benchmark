@@ -30,7 +30,7 @@ for (let i = 0; i < argv.length; i++) {
   }
 }
 
-const { satisfiesRange, satisfiesRangeTriple, pinTriple } = require('./lib/node-semver');
+const { satisfiesRange, satisfiesRangeTriple, pinVersions } = require('./lib/node-semver');
 
 const problems = [];
 const fail = (msg) => problems.push(msg);
@@ -114,24 +114,28 @@ if (pins.length === 0) {
 }
 
 for (const pin of pins) {
-  // A bare major pin ("24") makes setup-node install the newest 24.x, so the
-  // comparison uses the top of that major rather than exactly major.0.0.
-  const candidate = pinTriple(pin.version);
-  if (!candidate) {
+  // A bare major pin ("24") denotes every 24.x release, not one artificial
+  // version, so the *lowest* release of that major must satisfy the floor too:
+  // otherwise a pin could pass here and still install a runtime the pipeline
+  // rejects. Fully-qualified pins denote a single version.
+  const candidates = pinVersions(pin.version);
+  if (!candidates) {
     fail(`${pin.workflow}:${pin.line}: cannot parse Node version ${JSON.stringify(pin.version)}`);
     continue;
   }
-  for (const req of requirements) {
-    const ok = satisfiesRangeTriple(candidate, req.range);
-    if (ok === null) {
-      fail(
-        `${pin.workflow}:${pin.line}: cannot compare Node ${pin.version} against ${req.label} (${req.range})`
-      );
-    } else if (!ok) {
-      fail(
-        `${pin.workflow}:${pin.line} pins Node ${pin.version}, which does not satisfy ` +
-        `${req.label} (${req.range})`
-      );
+  for (const candidate of candidates) {
+    for (const req of requirements) {
+      const ok = satisfiesRangeTriple(candidate, req.range);
+      if (ok === null) {
+        fail(
+          `${pin.workflow}:${pin.line}: cannot compare Node ${pin.version} against ${req.label} (${req.range})`
+        );
+      } else if (!ok) {
+        fail(
+          `${pin.workflow}:${pin.line} pins Node ${pin.version}, whose ${candidate.join('.')} release ` +
+          `does not satisfy ${req.label} (${req.range})`
+        );
+      }
     }
   }
 }

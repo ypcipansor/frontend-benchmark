@@ -56,6 +56,17 @@
     return div.innerHTML;
   }
 
+  // Attribute-safe escaping: escapeHtml leaves quotes untouched, so a todo text
+  // interpolated into a double-quoted attribute (aria-label) can break out and
+  // inject markup. The benchmark's Blade app shipped exactly that bug.
+  function escapeAttr(text) {
+    return String(text)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
   function render() {
     var remaining = todos.filter(function (t) { return !t.completed; }).length;
     document.getElementById('remaining-count').textContent = String(remaining);
@@ -67,16 +78,20 @@
         '<div class="empty-state-text">No todos to display</div></div>';
       return;
     }
+    // The fixture reproduces the benchmark's attribute bug on demand so a
+    // regression test can prove the checker catches it. Production renderers
+    // must always use escapeAttr here.
+    var label = FLAGS.vulnerableAriaLabel ? escapeHtml : escapeAttr;
     container.innerHTML =
       '<ul class="todo-list">' +
       list.map(function (todo) {
         return (
           '<li class="todo-item ' + (todo.completed ? 'completed' : '') + '">' +
           '<input type="checkbox" class="todo-checkbox" ' + (todo.completed ? 'checked' : '') +
-          ' data-id="' + todo.id + '" aria-label="Toggle ' + escapeHtml(todo.text) + '" />' +
+          ' data-id="' + todo.id + '" aria-label="Toggle ' + label(todo.text) + '" />' +
           '<span class="todo-text">' + escapeHtml(todo.text) + '</span>' +
           '<button class="btn btn-delete" data-id="' + todo.id + '" ' +
-          'aria-label="Delete ' + escapeHtml(todo.text) + '">Delete</button>' +
+          'aria-label="Delete ' + label(todo.text) + '">Delete</button>' +
           '</li>'
         );
       }).join('') +
