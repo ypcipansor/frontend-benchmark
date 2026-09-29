@@ -258,4 +258,4 @@ All benchmark results are saved to:
 - Lighthouse results: `benchmarks/results/lighthouse-results.json`
 - Docker benchmark results: `benchmarks/results/docker-benchmark-results.json`
 
-Results are also summarized in the main `RESULTS.md` file.
+The committed summary of these numbers lives in the **Benchmark Results** section of [README.md](README.md); `cd benchmarks/scripts && npm run update-readme` regenerates it from `comprehensive-benchmark-results.json`.

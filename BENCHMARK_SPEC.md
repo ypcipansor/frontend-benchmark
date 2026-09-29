@@ -31,11 +31,51 @@ The benchmark application is a **Todo List** with the following features:
 6. Display count of remaining todos
 
 ### Technical Requirements
-- Initial load with 100 pre-populated todos
+
+- Initial load with **100 pre-populated todos**
+- **Every 3rd item completed** — items 3, 6, 9, …, 99, i.e. **33 completed** and **67 remaining**
 - Real-time UI updates
 - Local state management (no backend API calls for core functionality)
 - Responsive design
 - Accessibility considerations (ARIA labels, keyboard navigation)
+
+### Visual Parity Contract
+
+All implementations must render an **identical** screen. These values are asserted automatically by [`docs/parity-check.js`](docs/parity-check.js), which drives all seven dev servers through the same script and fails on any deviation:
+
+| Element | Selector | Required value in a 1440×1024 viewport |
+|---------|----------|----------------------------------------|
+| Card | `.todo-app` | **600px wide**, `x = 420` |
+| Header | `.todo-header` | identical across frameworks |
+| Input | `.todo-input` | identical across frameworks |
+| Filters | `.todo-filters` | identical across frameworks |
+| List | `.todo-list` | identical across frameworks |
+| Footer | `.todo-footer` | identical across frameworks |
+
+Required text content:
+
+| Check | Expected |
+|-------|----------|
+| Item labels | `Todo item 1` … `Todo item 100` |
+| Checked boxes | **33** (multiples of 3, 1-based) |
+| Stats | `<n> items remaining` where `n = 67` initially |
+| `Active` filter | **67** items |
+| `Completed` filter | **33** items |
+| Add one todo | **101** items |
+| Delete it | **100** items |
+| Console | no errors or uncaught exceptions |
+| Page title | `Todo List - <Framework>` |
+
+To make the card the only flex child of `<body>`, the shared stylesheet neutralises every mount point (`#root`, `#app`, `#main`, `app-root`) with `display: contents`. Implementations that mount into a wrapper must not override this. In particular, an implementation that renders the card directly into `<body>` (Blade) must not give that card `id="app"` — the id would match this rule and collapse the card.
+
+`shared/styles/todo.css` is the single source. Leptos, Yew and Dioxus link it directly from `index.html`; React, Vue, Angular and Blade bundle or serve it from their own tree and keep a copy, and [`docs/check-shared-stylesheet.js`](docs/check-shared-stylesheet.js) (`cd docs && npm run check:css`) fails unless every copy is byte-identical to the shared file. Run `cd docs && npm run sync:css` to rewrite the copies after editing the source.
+
+Parity is checked at two levels:
+
+- [`docs/parity-check.js`](docs/parity-check.js) asserts DOM structure, geometry, content and state.
+- [`docs/pixel-parity.py`](docs/pixel-parity.py) diffs each framework's screenshot against the React reference in every UI state and fails on any difference outside the two regions that hold the framework name (the header badge and the footer). Each of those two rectangles is masked on its own (never their bounding hull), so a difference in the gap between them still fails. The report must be a single capture generation: all seven entries share one `captureRunId`. The rectangles are validated before they become NumPy slices: a non-finite value, a non-positive width/height, or a rectangle that does not overlap the image fails with a `ReportError` rather than masking the wrong pixels.
+
+Because that pixel check is strict, the remaining-count line must be segmented identically everywhere: wrap the digits in their own element rather than emitting `<count> items remaining` as a single merged text node. Different text-node segmentation changes subpixel glyph shaping and produces a real diff even when the rendered text is the same.
 
 ## Metrics to Measure
 
@@ -96,9 +136,12 @@ Each implementation should:
 
 ## Results Format
 
-Results will be documented in `RESULTS.md` with:
+Results are published in the **Benchmark Results** section of [README.md](README.md), which is regenerated automatically from the comprehensive run JSON by `benchmarks/scripts/update-readme-results.js`. The raw JSON is a CI artifact rather than a committed file; [RESULTS_TEMPLATE.md](RESULTS_TEMPLATE.md) documents its shape.
+
+Reported output includes:
+
 - Performance metric tables
 - Bundle size comparisons
-- Screenshots of each implementation
+- Screenshots of every implementation and UI state (see the [project README](README.md#visual-parity--every-framework-every-state))
 - Developer experience notes
 - Recommendations based on use cases

@@ -42,7 +42,10 @@ fn App() -> Element {
 
     let remaining_text = use_memo(move || {
         let count = *remaining_count.read();
-        format!("{} {} remaining", count, if count == 1 { "item" } else { "items" })
+        format!(
+            " {} remaining",
+            if count == 1 { "item" } else { "items" }
+        )
     });
 
     // Computed values
@@ -72,6 +75,15 @@ fn App() -> Element {
             *next_id.write() = id + 1;
             *input_value.write() = String::new();
         }
+    };
+
+    // Toggle every todo: if all are complete, clear them; otherwise complete them all.
+    let mut toggle_all = move || {
+        let all_completed = {
+            let list = todos.read();
+            !list.is_empty() && list.iter().all(|t| t.completed)
+        };
+        todos.write().iter_mut().for_each(|t| t.completed = !all_completed);
     };
 
     rsx! {
@@ -122,9 +134,16 @@ fn App() -> Element {
                     "aria-label": "Show completed todos",
                     "Completed"
                 }
+                button {
+                    class: "btn todo-toggle-all",
+                    onclick: move |_| toggle_all(),
+                    "aria-label": "Toggle all todos",
+                    "Toggle all"
+                }
             }
 
             div { class: "todo-stats",
+                span { "{remaining_count.read()}" }
                 "{remaining_text.read()}"
             }
 

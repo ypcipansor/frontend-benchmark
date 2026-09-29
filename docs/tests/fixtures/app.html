@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Todo List - Fixture</title>
+  <link rel="stylesheet" href="fixture.css" />
+</head>
+<body>
+  <div class="todo-app">
+    <div class="todo-header">
+      <h1>Todo List</h1>
+      <span class="framework-badge">Fixture</span>
+    </div>
+
+    <div class="todo-input-container">
+      <input type="text" class="todo-input" placeholder="What needs to be done?" aria-label="New todo input" />
+      <button class="btn btn-primary" aria-label="Add todo">Add</button>
+    </div>
+
+    <div class="todo-filters">
+      <button class="btn filter-btn active" data-filter="all" aria-label="Show all todos">All</button>
+      <button class="btn filter-btn" data-filter="active" aria-label="Show active todos">Active</button>
+      <button class="btn filter-btn" data-filter="completed" aria-label="Show completed todos">Completed</button>
+      <button class="btn todo-toggle-all" aria-label="Toggle all todos">Toggle all</button>
+    </div>
+
+    <div class="todo-stats"><span id="remaining-count">67</span> items remaining</div>
+
+    <div id="todo-list-container"></div>
+
+    <div class="todo-footer">Frontend Benchmark - Fixture Implementation</div>
+  </div>
+
+  <script src="fixture.js"></script>
+</body>
+</html>

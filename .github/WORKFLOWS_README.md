@@ -138,7 +138,25 @@ docker compose config
 Recommended settings for `main`:
 1. ✅ Require status checks to pass
 2. ✅ Select: "All Basic Checks Passed"
-3. ✅ Require branches to be up to date
+3. ✅ Select: "Capture / verify / parity / pixel" (the **Visual Parity** job)
+4. ✅ Select: "Regression tests"
+5. ✅ Select: "Regression tests (no captures)"
+6. ✅ Require branches to be up to date
+
+> **Visual Parity must be a required status check.** The results-PR auto-merger
+> enforces it for benchmark-results PRs, but ordinary PRs rely on branch
+> protection: without it here, a normal PR could merge before the
+> capture/verify/parity/pixel gate has run. Branch protection is a repository
+> setting (not a file), so it is listed here to keep the two in sync.
+>
+> **The regression suite is two more jobs** in the same workflow. The suite
+> re-runs the whole capture pipeline, and it used to run twice inside one job
+> (once normally, once with the captures hidden to prove self-containment),
+> which pushed that job against the runner's ~30m ceiling and got it evicted
+> mid-run. It is now split into "Regression tests" and
+> "Regression tests (no captures)" so no job runs the suite twice. Both live in
+> `visual-parity.yml`, so requiring the workflow (for the auto-merger) and all
+> three check names (branch protection) covers the whole gate.
 
 ### Artifact Retention
 
