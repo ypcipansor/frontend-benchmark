@@ -2531,7 +2531,12 @@ while True:
         moved = true;
       }
       const res = run('node', [__filename, '--require-no-captures'], {
-        timeout: 900000,
+        // The nested run repeats the whole suite, which now drives the capture
+        // pipeline several times and takes ~15m on a runner. Its own timeout was
+        // 15m, so the re-run was being killed just before it finished. Give it
+        // the same generous headroom as the outer suite instead of a ceiling
+        // that the suite has outgrown.
+        timeout: 1800000,
         env: { FB_REGRESSION_RECURSION: '1' },
       });
       await test('the whole suite passes with production captures unavailable', () => {
