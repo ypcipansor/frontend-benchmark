@@ -1,5 +1,7 @@
 # Runs the full visual-parity gate on every PR: capture -> verify -> parity ->
-# pixel, plus the deterministic optimize/montage and the regression tests.
+# pixel, plus the deterministic optimize/montage, and the regression suite as a
+# second job (kept separate so neither job approaches the runner's wall-time
+# ceiling).
 #
 # All seven implementations are built and started explicitly, including the
 # three Rust/WASM ones (trunk build) and Blade.php (PHP built-in server). Nothing
@@ -24,13 +26,12 @@ jobs:
   parity:
     name: Capture / verify / parity / pixel
     runs-on: ubuntu-latest
-    # The regression suite is the long pole: it drives the real capture pipeline
-    # several times and, at the end, re-runs the whole thing once with the
-    # production captures hidden (to prove the suite is self-contained), so it
-    # alone can take 30-45m on a runner. 45m total was not enough headroom for
-    # the ~8m of setup/build/capture that precedes it; 75m keeps a genuine hang
-    # failing the job while leaving the suite room to finish.
-    timeout-minutes: 75
+    # Builds the seven implementations, starts them, then runs
+    # capture -> verify -> parity -> pixel -> optimize -> montage. The regression
+    # suite used to run here too, doubling the job's wall time and pushing it
+    # against the runner's ~30m ceiling; it is now its own job (below). 45m
+    # leaves generous headroom for a genuine hang to still fail.
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
@@ -150,10 +151,6 @@ jobs:
         working-directory: docs
         run: npm run check:docs
 
-      - name: Regression tests
-        working-directory: docs
-        run: npm test
-
       - name: Upload screenshots and report
         if: always()
         uses: actions/upload-artifact@v4
@@ -176,3 +173,46 @@ jobs:
       - name: Stop servers
         if: always()
         run: bash docs/scripts/stop-servers.sh
+
+  # The regression suite drives the real capture pipeline several times and, at
+  # the end, re-runs the whole thing once with the production captures hidden to
+  # prove the suite is self-contained. That used to run inside the parity job,
+  # making it the long pole and pushing the job against the runner's ~30m
+  # ceiling; running it as its own job keeps each job well under the limit while
+  # still gating the PR (both jobs must pass).
+  regression:
+    name: Regression tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.15.0'
+          cache: 'npm'
+          cache-dependency-path: docs/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: docs/requirements.txt
+
+      - name: Install docs tooling (npm ci)
+        working-directory: docs
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Install Python tooling (pinned)
+        run: python3 -m pip install -r docs/requirements.txt
+
+      # The suite drives the production start/stop scripts and parity checker;
+      # those only need their runtime (bash, python3, a browser), not the
+      # framework dev servers or a trunk build. The leptos dist it uses is
+      # created as a synthetic fixture inside the test itself.
+      - name: Regression tests
+        working-directory: docs
+        run: npm test

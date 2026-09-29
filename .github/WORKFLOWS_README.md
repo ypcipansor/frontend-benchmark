@@ -139,13 +139,20 @@ Recommended settings for `main`:
 1. ✅ Require status checks to pass
 2. ✅ Select: "All Basic Checks Passed"
 3. ✅ Select: "Capture / verify / parity / pixel" (the **Visual Parity** job)
-4. ✅ Require branches to be up to date
+4. ✅ Select: "Regression tests" (the second Visual Parity job)
+5. ✅ Require branches to be up to date
 
 > **Visual Parity must be a required status check.** The results-PR auto-merger
 > enforces it for benchmark-results PRs, but ordinary PRs rely on branch
 > protection: without it here, a normal PR could merge before the
 > capture/verify/parity/pixel gate has run. Branch protection is a repository
 > setting (not a file), so it is listed here to keep the two in sync.
+>
+> **Regression tests is a separate job** in the same workflow. It used to run
+> inside the capture job, which made that job the long pole and pushed it against
+> the runner's ~30m ceiling; splitting it keeps each job under the limit. Both
+> jobs live in `visual-parity.yml`, so requiring the workflow (for the
+> auto-merger) and both check names (branch protection) covers the whole gate.
 
 ### Artifact Retention
 

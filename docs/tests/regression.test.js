@@ -65,6 +65,16 @@ const SHOTS = path.join(DOCS, 'screenshots');
 const FIXTURE_PORT = 4188;
 const REQUIRE_NO_CAPTURES = process.argv.includes('--require-no-captures');
 
+// The nested self-containment run passes --require-no-captures, so this both
+// documents the flag and turns the guarantee into an assertion: if the suite
+// were ever reachable from a checkout that still had docs/screenshots/, the
+// "no captures" proof would be meaningless.
+if (REQUIRE_NO_CAPTURES && fs.existsSync(SHOTS)) {
+  console.error('regression.test.js: --require-no-captures was set but docs/screenshots/ still exists; ' +
+    'the self-containment proof would not be testing a clean checkout.');
+  process.exit(1);
+}
+
 let passed = 0;
 let failed = 0;
 const failures = [];
@@ -2852,6 +2862,25 @@ while True:
         'Visual Parity does not trigger on pull_request to main');
       assert(/^\s*(workflow_dispatch|push):/m.test(parity),
         'Visual Parity cannot be dispatched for a results branch');
+    });
+
+    await test('the regression suite runs as its own Visual Parity job', () => {
+      // The suite re-runs the whole capture pipeline (nested self-containment),
+      // so bundling it into the capture job pushed that job against the runner's
+      // ~30m ceiling and got it evicted mid-run. It must be a separate job so the
+      // capture job stays well under the limit. Parsing YAML would add a
+      // dependency, so split on the two-space job header instead.
+      const parity = fs.readFileSync(
+        path.join(ROOT, '.github', 'workflows', 'visual-parity.yml'), 'utf8');
+      const marker = '\n  regression:\n';
+      const at = parity.indexOf(marker);
+      assert(at !== -1, 'visual-parity.yml no longer defines a separate `regression` job');
+      const captureJob = parity.slice(0, at);
+      const regressionJob = parity.slice(at);
+      assert(!/npm\s+test\b/.test(captureJob),
+        'the capture job still runs `npm test`, so the split regressed');
+      assert(/npm\s+test\b/.test(regressionJob),
+        'the separate regression job does not run `npm test`');
     });
 
     await test('the maintainer docs require Visual Parity on the protected branch', () => {
