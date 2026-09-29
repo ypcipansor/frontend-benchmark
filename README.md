@@ -120,7 +120,7 @@ The complete set of 35 captures, framework by framework. Full-resolution PNGs (1
 
 ## Benchmark Results
 
-*Last updated: 2026-09-28*
+*Last updated: 2026-09-29*
 
 > ⚠️ **Provenance:** Values below were collected across separate runs and environments and may not be directly comparable. A single, fresh, full 7-framework run in one environment is needed before rankings can be treated as authoritative.
 
@@ -129,12 +129,12 @@ The complete set of 35 captures, framework by framework. Full-resolution PNGs (1
 ### Quick Highlights
 
 - 🚀 **Top Lighthouse score:** React — **100/100**
-- 📦 **Smallest gzipped bundle:** blade — **1.32 KB**
-- ⚡ **Highest throughput:** Vue — **33,042 req/s** @ 2,000 connections
+- 📦 **Smallest gzipped bundle:** blade — **1.62 KB**
+- ⚡ **Highest throughput:** Yew — **26,343 req/s** @ 2,000 connections
 
-- Top throughput (top 3): Vue (33,042 req/s), Leptos (27,581 req/s), Dioxus (27,291 req/s)
-- Top Lighthouse (top 3): React (100/100), Vue (100/100), Angular (100/100)
-- Smallest bundles (top 3): blade (1.32 KB), vue (26.02 KB), react (68.18 KB)
+- Top throughput (top 3): Yew (26,343 req/s), Vue (24,394 req/s), Dioxus (24,057 req/s)
+- Top Lighthouse (top 3): React (100/100), Vue (100/100), Leptos (100/100)
+- Smallest bundles (top 3): blade (1.62 KB), vue (26.13 KB), react (68.28 KB)
 
 ---
 
@@ -143,48 +143,48 @@ The complete set of 35 captures, framework by framework. Full-resolution PNGs (1
 | Rank | Framework | Perf | FCP | LCP | TTI |
 |-----:|-----------|-----:|----:|----:|----:|
 | 1 | react | **100/100** | 1352ms | 1352ms | 1352ms |
-| 2 | vue | **100/100** | 1051ms | 1261ms | 1321ms |
-| 3 | angular | **100/100** | 1352ms | 1741ms | 1763ms |
-| 4 | leptos | **100/100** | 902ms | 1502ms | 1535ms |
-| 5 | yew | **100/100** | 902ms | 1502ms | 1540ms |
-| 6 | blade | **100/100** | 752ms | 902ms | 902ms |
-| 7 | dioxus | **98/100** | 1201ms | 2401ms | 2501ms |
+| 2 | vue | **100/100** | 1052ms | 1266ms | 1331ms |
+| 3 | leptos | **100/100** | 901ms | 1501ms | 1543ms |
+| 4 | yew | **100/100** | 902ms | 1502ms | 1542ms |
+| 5 | blade | **100/100** | 751ms | 901ms | 901ms |
+| 6 | angular | **99/100** | 1352ms | 1745ms | 1771ms |
+| 7 | dioxus | **98/100** | 1242ms | 2402ms | 2488ms |
 
 ### Bundle Sizes (gzipped)
 
 | Rank | Framework | Bundle (gzipped) | Total Size |
 |-----:|-----------|------------------:|-----------:|
-| 1 | blade | 1.32 KB | 4.01 KB |
-| 2 | vue | 26.02 KB | 68.33 KB |
-| 3 | react | 68.18 KB | 220.9 KB |
-| 4 | angular | 68.26 KB | 213.06 KB |
-| 5 | yew | 77.88 KB | 279.65 KB |
-| 6 | leptos | 77.94 KB | 391.93 KB |
-| 7 | dioxus | 193.45 KB | 526.12 KB |
+| 1 | blade | 1.62 KB | 4.73 KB |
+| 2 | vue | 26.13 KB | 68.76 KB |
+| 3 | react | 68.28 KB | 221.32 KB |
+| 4 | angular | 68.3 KB | 213.33 KB |
+| 5 | yew | 78.1 KB | 280.91 KB |
+| 6 | leptos | 78.28 KB | 393.97 KB |
+| 7 | dioxus | 194.02 KB | 527.93 KB |
 
 ### Throughput
 
 | Rank | Framework | Peak Avg Req/s | p50 | p90 | p99 | Errors |
 |-----:|-----------|---------------:|----:|----:|----:|------:|
-| 1 | **Vue** | 33,042 | 154ms | 212ms | 339ms | 0 |
-| 2 | **Leptos** | 27,581 | 145ms | 196ms | 340ms | 0 |
-| 3 | **Dioxus** | 27,291 | 153ms | 199ms | 331ms | 0 |
-| 4 | **Yew** | 27,153 | 149ms | 204ms | 326ms | 0 |
-| 5 | **Angular** | 21,813 | 154ms | 231ms | 326ms | 0 |
-| 6 | **React** | 17,005 | 152ms | 230ms | 331ms | 0 |
-| 7 | **Blade** | 2,256 | 142ms | 340ms | 522ms | 0 |
+| 1 | **Yew** | 26,343 | 152ms | 205ms | 361ms | 0 |
+| 2 | **Vue** | 24,394 | 157ms | 200ms | 336ms | 0 |
+| 3 | **Dioxus** | 24,057 | 158ms | 198ms | 357ms | 0 |
+| 4 | **Angular** | 23,205 | 143ms | 201ms | 346ms | 0 |
+| 5 | **Leptos** | 22,866 | 151ms | 215ms | 331ms | 0 |
+| 6 | **React** | 22,053 | 157ms | 220ms | 342ms | 0 |
+| 7 | **Blade** | 2,186 | 156ms | 327ms | 474ms | 0 |
 
 ### Stress Test Summary
 
 | Rank | Framework | Peak Avg Req/s | Peak Concurrency | p50 | p90 | p99 | Errors | Non-2xx |
 |-----:|-----------|---------------:|----------------:|----:|----:|----:|------:|-------:|
-| 1 | vue | 33,042 | 2,000 | 154ms | 212ms | 339ms | 0 | 0 |
-| 2 | leptos | 27,581 | 2,000 | 145ms | 196ms | 340ms | 0 | 0 |
-| 3 | dioxus | 27,291 | 2,000 | 153ms | 199ms | 331ms | 0 | 0 |
-| 4 | yew | 27,153 | 2,000 | 149ms | 204ms | 326ms | 0 | 0 |
-| 5 | angular | 21,813 | 2,000 | 154ms | 231ms | 326ms | 0 | 0 |
-| 6 | react | 17,005 | 2,000 | 152ms | 230ms | 331ms | 0 | 0 |
-| 7 | blade | 2,256 | 100 | 142ms | 340ms | 522ms | 0 | 0 |
+| 1 | yew | 26,343 | 2,000 | 152ms | 205ms | 361ms | 0 | 0 |
+| 2 | vue | 24,394 | 2,000 | 157ms | 200ms | 336ms | 0 | 0 |
+| 3 | dioxus | 24,057 | 2,000 | 158ms | 198ms | 357ms | 0 | 0 |
+| 4 | angular | 23,205 | 2,000 | 143ms | 201ms | 346ms | 0 | 0 |
+| 5 | leptos | 22,866 | 2,000 | 151ms | 215ms | 331ms | 0 | 0 |
+| 6 | react | 22,053 | 2,000 | 157ms | 220ms | 342ms | 0 | 0 |
+| 7 | blade | 2,186 | 100 | 156ms | 327ms | 474ms | 0 | 0 |
 
 ### Runtime Resource Usage
 
@@ -194,13 +194,13 @@ The first table is a **pre-audit idle sample**: the container is up with no traf
 
 | Framework | CPU (avg / max) | Memory (avg / max) |
 |-----------|----------------:|-------------------:|
-| react | 0.00% / 0.00% | 4.93 MB / 5.00 MB |
-| vue | 0.00% / 0.00% | 4.75 MB / 4.91 MB |
-| angular | 0.00% / 0.00% | 4.69 MB / 4.90 MB |
-| leptos | 0.00% / 0.00% | 4.72 MB / 4.87 MB |
-| yew | 0.00% / 0.00% | 4.65 MB / 4.65 MB |
-| dioxus | 0.00% / 0.00% | 4.68 MB / 4.89 MB |
-| blade | 0.00% / 0.01% | 19.25 MB / 19.25 MB |
+| react | 0.00% / 0.00% | 4.70 MB / 4.70 MB |
+| vue | 0.00% / 0.00% | 4.73 MB / 5.10 MB |
+| angular | 0.00% / 0.00% | 4.87 MB / 5.27 MB |
+| leptos | 0.00% / 0.00% | 4.76 MB / 4.76 MB |
+| yew | 0.00% / 0.00% | 4.93 MB / 5.00 MB |
+| dioxus | 0.00% / 0.00% | 4.89 MB / 5.07 MB |
+| blade | 0.00% / 0.01% | 18.91 MB / 18.94 MB |
 
 **Under load (highest-throughput stress sample per framework)**
 
@@ -208,13 +208,13 @@ Each row is the framework's own peak sample; concurrency differs where a framewo
 
 | Framework | Concurrency | CPU (avg / max) | Memory (avg / max) |
 |-----------|------------:|----------------:|-------------------:|
-| react | 2,000 | 127.16% / 139.57% | 17.41 MB / 21.22 MB |
-| vue | 2,000 | 125.22% / 141.60% | 14.74 MB / 15.19 MB |
-| angular | 2,000 | 126.07% / 143.41% | 17.71 MB / 20.52 MB |
-| leptos | 2,000 | 132.68% / 150.21% | 15.53 MB / 17.99 MB |
-| yew | 2,000 | 127.43% / 143.89% | 16.81 MB / 20.26 MB |
-| dioxus | 2,000 | 126.45% / 137.90% | 16.12 MB / 21.07 MB |
-| blade | 100 | 264.55% / 270.68% | 125.20 MB / 164.30 MB |
+| react | 2,000 | 130.85% / 144.79% | 16.06 MB / 19.73 MB |
+| vue | 2,000 | 129.41% / 145.03% | 15.58 MB / 18.18 MB |
+| angular | 2,000 | 133.27% / 141.96% | 15.38 MB / 16.93 MB |
+| leptos | 2,000 | 130.23% / 150.53% | 15.77 MB / 19.41 MB |
+| yew | 2,000 | 129.62% / 140.55% | 16.02 MB / 20.62 MB |
+| dioxus | 2,000 | 128.57% / 139.38% | 15.48 MB / 17.19 MB |
+| blade | 100 | 257.90% / 262.59% | 130.70 MB / 169.30 MB |
 
 ### Test Environment
 
@@ -223,11 +223,11 @@ Each row is the framework's own peak sample; concurrency differs where a framewo
 | Runner | ubuntu-latest (GitHub-hosted) |
 | CPU | 4 vCPU |
 | Memory | 15.61 GiB |
-| Node.js | v24.21.0 |
+| Node.js | v24.15.0 |
 | Browser (Lighthouse) | Chromium 153.0.8010.47 snap |
 | Docker Engine | 28.0.4 |
 | Load test tool | autocannon 8.0.0 (pipelining 1) |
-| Workflow run | https://github.com/ypcipansor/frontend-benchmark/actions/runs/36360569691 |
+| Workflow run | https://github.com/ypcipansor/frontend-benchmark/actions/runs/36576414935 |
 
 > Raw results (`benchmarks/results/*.json`) are gitignored; they are uploaded as a 90-day workflow artifact. See the workflow run linked above.
 
@@ -240,7 +240,6 @@ All tests were performed using the included `benchmarks/scripts` runner and are 
 Throughput and latency are measured by `autocannon` (pipelining 1) at 100/500/1,000/2,000 concurrent connections for 30s per level. CPU/memory are sampled with `docker stats` both while idle and during the peak stress level, as labelled above.
 
 For detailed per-framework analysis and complete methodology, see [BENCHMARK_GUIDE.md](BENCHMARK_GUIDE.md).
-
 
 
 ## Verifying visual parity
