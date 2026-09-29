@@ -75,7 +75,12 @@ function buildHtml(state, label) {
   const tmp = path.join(ROOT, 'docs', '.gallery-tmp.html');
   let browser;
   try {
-    browser = await chromium.launch({ args: ['--no-sandbox'] });
+    browser = await chromium.launch({
+      // The montage page is opened over file://; reading an image's pixels with
+      // getImageData would taint the canvas unless file:// origins may read each
+      // other. This flag is what lets the blank-tile check below read the JPEGs.
+      args: ['--no-sandbox', '--allow-file-access-from-files'],
+    });
     for (const [state, label] of STATES) {
       fs.writeFileSync(tmp, buildHtml(state, label));
       const ctx = await browser.newContext({
@@ -102,6 +107,39 @@ function buildHtml(state, label) {
         );
         if (shortFigures.length) {
           throw new Error(`montage ${state}: card too small for ${shortFigures.join(', ')}`);
+        }
+        // Loading and a sane height are not enough: a solid-color JPEG of the
+        // right size would pass both and publish an empty tile. Read the actual
+        // pixels and reject a near-uniform image (a blank card), so the montage
+        // only ever shows content-validated captures.
+        const blankFigures = await page.evaluate(() => {
+          const blank = [];
+          for (const img of document.images) {
+            const canvas = document.createElement('canvas');
+            const w = (canvas.width = Math.min(img.naturalWidth, 200));
+            const h = (canvas.height = Math.min(img.naturalHeight, 200));
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, w, h);
+            const { data } = ctx.getImageData(0, 0, w, h);
+            // Fraction of sampled pixels that differ from the top-left pixel by
+            // more than a small tolerance. A blank/solid tile is ~0; a real card
+            // (text, borders, checkbox rows) is several percent.
+            const r0 = data[0], g0 = data[1], b0 = data[2];
+            let differing = 0;
+            const total = w * h;
+            for (let i = 0; i < data.length; i += 4) {
+              if (Math.abs(data[i] - r0) > 12 || Math.abs(data[i + 1] - g0) > 12 ||
+                  Math.abs(data[i + 2] - b0) > 12) differing++;
+            }
+            if (differing / total < 0.002) {
+              const fig = img.closest('figure');
+              blank.push(fig ? fig.querySelector('figcaption').textContent : img.getAttribute('src'));
+            }
+          }
+          return blank;
+        });
+        if (blankFigures.length) {
+          throw new Error(`montage ${state}: blank/near-uniform image(s) for ${blankFigures.join(', ')}`);
         }
         const out = path.join(OUT, `comparison-${state}.png`);
         await page.screenshot({ path: out, fullPage: true });

@@ -1777,6 +1777,103 @@ wait "$child"
     }
   }
 
+  // --- an interrupted startup must reap what it already launched -----------
+  console.log('\nstart-servers.sh interruption cleanup (finding 28)');
+  {
+    // Reproduces the gap: a server started for real (so it holds its port and
+    // records a verified state), then a second framework whose startup never
+    // becomes ready -- we interrupt the script while it is waiting. Before the
+    // INT/TERM trap, the already-launched server kept running and held its port.
+    const OFFSET = 4000;                 // react -> 8001, vue -> 8002
+    const reactPort = 4001 + OFFSET;
+    const vuePort = 4002 + OFFSET;
+    const logsDir = tmpDir('interrupt-logs');
+    const bin = tmpDir('interrupt-bin');
+
+    // A fake `npm` serves each framework: react answers HTTP so start-servers
+    // proceeds, vue accepts the connection but never returns a response so its
+    // readiness loop keeps polling while we send the signal.
+    const fakeNpm = path.join(bin, 'npm');
+    fs.writeFileSync(fakeNpm, `#!/usr/bin/env bash
+# args: --prefix <dir> run dev -- --port <port> --host 127.0.0.1 --strictPort
+port=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --port) port="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+# Serve a real HTTP response for every framework except the one whose readiness
+# must hang (so the script is still waiting when we interrupt it).
+ready="yes"
+if [ -n "\${HANG_PORT:-}" ] && [ "$port" = "$HANG_PORT" ]; then ready="no"; fi
+exec python3 -c '
+import socket, sys
+port = int(sys.argv[1])
+ready = sys.argv[2] == "yes"
+s = socket.socket()
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(("127.0.0.1", port))
+s.listen(5)
+while True:
+    c, _ = s.accept()
+    if ready:
+        c.sendall(b"HTTP/1.1 200 OK\\r\\nContent-Length: 2\\r\\nConnection: close\\r\\n\\r\\nok")
+    c.close()
+' "$port" "$ready"
+`);
+    fs.chmodSync(fakeNpm, 0o755);
+
+    const startScript = path.join(DOCS, 'scripts', 'start-servers.sh');
+    const stopScript = path.join(DOCS, 'scripts', 'stop-servers.sh');
+    let child = null;
+    try {
+      child = spawn('bash',
+        [startScript, '--port-offset', String(OFFSET), '--ready-timeout', '60'],
+        {
+          cwd: DOCS,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: {
+            ...process.env,
+            FB_LOGS_DIR: logsDir,
+            PATH: `${bin}:${process.env.PATH}`,
+            HANG_PORT: String(vuePort),
+          },
+        });
+      // Wait until react is genuinely served (its state is verified), then let
+      // vue's readiness hang and interrupt the script.
+      await waitForTcp(reactPort, 20000);
+      await new Promise((r) => setTimeout(r, 1500));
+      child.kill('SIGINT');
+      await new Promise((resolve) => {
+        const t = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* gone */ } resolve(); }, 20000);
+        child.on('exit', () => { clearTimeout(t); resolve(); });
+      });
+
+      await test('an interrupted startup stops the servers it already launched', async () => {
+        const deadline = Date.now() + 8000;
+        let up = true;
+        while (Date.now() < deadline && up) {
+          up = await tcpOpen(reactPort);
+          if (up) await new Promise((r) => setTimeout(r, 200));
+        }
+        assert(!up, `react is still serving on ${reactPort} after the interruption`);
+      });
+
+      await test('no live process survives the interrupted startup', () => {
+        const stateFile = path.join(logsDir, 'react.state');
+        if (!fs.existsSync(stateFile)) return; // already reaped and removed
+        const pgid = Number(parseState(stateFile).pgid);
+        assert(!pgid || liveGroupMembers(pgid).length === 0,
+          `a live process survived in group ${pgid}: ${pgid ? liveGroupMembers(pgid).join(', ') : ''}`);
+      });
+    } finally {
+      if (child && child.pid) { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone */ } }
+      run('bash', [stopScript], { env: { FB_LOGS_DIR: logsDir }, timeout: 30000 });
+    }
+  }
+
+
   /**
    * PIDs still alive (state != Z) in process group `pgid`. Used to prove a real
    * process group was reaped without being confused by a zombie leader that has
@@ -2474,6 +2571,166 @@ while True:
     });
   }
 
+  // --- the engine gate must track a CLI floor that moves ---------------------
+  console.log('\nengine gate tracks a moved Angular CLI floor (finding 24)');
+  {
+    const { boundaryVersions, satisfiesRange } = require(path.join(DOCS, 'lib', 'node-semver.js'));
+    const checker = path.join(DOCS, 'check-node-engines.js');
+
+    await test('boundaryVersions probes the neighbours of every range boundary', () => {
+      const vs = boundaryVersions('^24.15.0').map((t) => t.join('.'));
+      // The point of the fix: a floor that moved from 24.15.0 to 24.16.0 must be
+      // a probed version, not something between two hand-picked samples.
+      for (const v of ['24.15.0', '24.15.1', '24.16.0', '22.0.0', '23.0.0', '26.0.0']) {
+        assert(vs.includes(v), `boundaryVersions did not probe ${v}: ${vs.join(', ')}`);
+      }
+    });
+
+    // Build a repo whose *installed* CLI is stricter than the checked-in
+    // declaration: the declaration is the wide `^22.22.3 || ^24.15.0 || >=26`,
+    // but the CLI on disk only accepts `^24.16.0 || >=26.0.0`. The old gate
+    // compared a fixed sample list and never noticed declaration ⊇ CLI.
+    const makeShiftedCli = (dir) => {
+      fs.mkdirSync(path.join(dir, '.github', 'workflows'), { recursive: true });
+      fs.mkdirSync(path.join(dir, 'docs'), { recursive: true });
+      fs.mkdirSync(path.join(dir, 'implementations', 'angular', 'node_modules', '@angular', 'cli'), { recursive: true });
+      fs.copyFileSync(path.join(DOCS, 'package.json'), path.join(dir, 'docs', 'package.json'));
+      fs.copyFileSync(
+        path.join(ROOT, 'implementations', 'angular', 'package.json'),
+        path.join(dir, 'implementations', 'angular', 'package.json')
+      );
+      fs.writeFileSync(
+        path.join(dir, 'implementations', 'angular', 'node_modules', '@angular', 'cli', 'package.json'),
+        JSON.stringify({ name: '@angular/cli', version: '22.9.0', engines: { node: '^24.16.0 || >=26.0.0' } }, null, 2)
+      );
+      fs.writeFileSync(
+        path.join(dir, '.github', 'workflows', 'x.yml'),
+        'name: x\njobs:\n  a:\n    steps:\n      - uses: actions/setup-node@v4\n        with:\n          node-version: "24.15.0"\n'
+      );
+    };
+
+    await test('the checker flags a declaration that accepts a version the CLI rejects', () => {
+      const dir = tmpDir('node-engines-shifted-decl');
+      makeShiftedCli(dir);
+      const res = run('node', [checker, '--root', dir], { timeout: 30000 });
+      assert(res.status !== 0, `a declaration wider than the CLI was accepted:\n${res.stdout}${res.stderr}`);
+      assert(/accepts Node/.test(res.stdout + res.stderr),
+        `the declaration-wider-than-CLI case was not reported: ${res.stdout}${res.stderr}`);
+    });
+
+    await test('the checker fails a workflow pin the installed CLI rejects', () => {
+      // 24.15.0 satisfies the declaration but not the installed CLI's floor, so
+      // the pin must fail even though the checked-in declaration admits it.
+      const dir = tmpDir('node-engines-shifted-pin');
+      makeShiftedCli(dir);
+      const res = run('node', [checker, '--root', dir], { timeout: 30000 });
+      assert(res.status !== 0, `a pin the installed CLI rejects was accepted:\n${res.stdout}${res.stderr}`);
+      assert(/installed @angular\/cli/.test(res.stdout + res.stderr),
+        `the installed-CLI requirement was not named: ${res.stdout}${res.stderr}`);
+    });
+
+    await test('the real repository still passes the tracked-cli gate', () => {
+      const res = run('node', [checker], { timeout: 30000 });
+      assert(res.status === 0, `the real checkout failed the gate:\n${res.stdout}${res.stderr}`);
+    });
+  }
+
+  // --- montage generation must reject a blank tile (finding 25) -------------
+  console.log('\nmontage blank-tile guard (finding 25)');
+  {
+    const montage = path.join(DOCS, 'build-montage.js');
+    const FRAMEWORKS = ['react', 'vue', 'angular', 'leptos', 'yew', 'dioxus', 'blade'];
+    const STATES = ['all', 'active', 'completed', 'input-filled', 'empty-state'];
+
+    // A real card is far from uniform; a solid JPEG of the same size is blank.
+    const makeImage = (dst, kind) => {
+      const script =
+        kind === 'blank'
+          ? `from PIL import Image; Image.new('RGB', (600, 800), (255, 255, 255)).save(${JSON.stringify(dst)}, 'JPEG')`
+          : `from PIL import Image\nimport random\nrandom.seed(1)\nim = Image.new('RGB', (600, 800), (255, 255, 255))\npx = im.load()\nfor y in range(800):\n    for x in range(600):\n        if (x + y) % 17 == 0 or y % 40 == 0:\n            px[x, y] = (random.randint(0, 90), random.randint(0, 90), random.randint(0, 90))\nim.save(${JSON.stringify(dst)}, 'JPEG')`;
+      const res = run('python3', ['-c', script], { timeout: 30000 });
+      assert(res.status === 0, `could not build a ${kind} fixture image: ${res.stdout}${res.stderr}`);
+    };
+
+    // build-montage.js resolves its tree relative to its own location, so a copy
+    // under a temp `docs/` with a synthetic `images/` tree exercises the real
+    // script (and its real checks) without touching the committed JPEGs.
+    const makeTree = (dir, blankFor) => {
+      fs.mkdirSync(path.join(dir, 'docs'), { recursive: true });
+      fs.copyFileSync(montage, path.join(dir, 'docs', 'build-montage.js'));
+      for (const fw of FRAMEWORKS) {
+        fs.mkdirSync(path.join(dir, 'docs', 'images', fw), { recursive: true });
+        for (const state of STATES) {
+          const kind = fw === blankFor ? 'blank' : 'content';
+          makeImage(path.join(dir, 'docs', 'images', fw, `${state}.jpg`), kind);
+        }
+      }
+    };
+
+    await test('montage refuses a blank (near-uniform) tile', () => {
+      const dir = tmpDir('montage-blank');
+      makeTree(dir, 'vue');
+      const res = run('node', [path.join(dir, 'docs', 'build-montage.js')], {
+        cwd: dir,
+        timeout: 120000,
+        env: { NODE_PATH: path.join(DOCS, 'node_modules') },
+      });
+      assert(res.status !== 0, `a blank tile was accepted:\n${res.stdout}${res.stderr}`);
+      assert(/blank|uniform/i.test(res.stdout + res.stderr),
+        `the blank tile was not reported as blank: ${res.stdout}${res.stderr}`);
+      assert(/Vue\.js|vue/.test(res.stdout + res.stderr),
+        `the blank framework was not named: ${res.stdout}${res.stderr}`);
+    });
+
+    await test('montage still accepts tiles with real content', () => {
+      const dir = tmpDir('montage-ok');
+      makeTree(dir, null);
+      const res = run('node', [path.join(dir, 'docs', 'build-montage.js')], {
+        cwd: dir,
+        timeout: 120000,
+        env: { NODE_PATH: path.join(DOCS, 'node_modules') },
+      });
+      assert(res.status === 0, `a content-rich montage was rejected:\n${res.stdout}${res.stderr}`);
+      assert(/comparison-all\.png/.test(res.stdout), `no montage was written: ${res.stdout}`);
+    });
+  }
+
+  // --- README must stay consistent with the implementation ------------------
+  console.log('\nREADME accuracy (findings 26-27)');
+  {
+    const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
+    await test('the Angular gallery label matches the Angular 22 dependency', () => {
+      const pkg = JSON.parse(
+        fs.readFileSync(path.join(ROOT, 'implementations', 'angular', 'package.json'), 'utf8'));
+      const cliMajor = /(\d+)/.exec(String(pkg.devDependencies['@angular/cli']))[1];
+      const m = /###\s*🅰️\s*Angular\s+(\d+)/.exec(readme);
+      assert(m, 'the README has no Angular gallery heading');
+      assert(m[1] === cliMajor,
+        `README says Angular ${m[1]} but the dependency is Angular ${cliMajor}`);
+    });
+
+    await test('the capture instructions set up the implementations first', () => {
+      // start-servers.sh launches every dev server, so a fresh checkout needs the
+      // JS deps, the Rust dists and Blade's Composer packages before it runs.
+      const block = /```bash\ncd docs\n([\s\S]*?)```/.exec(readme);
+      assert(block, 'the README has no capture command block');
+      const body = block[1];
+      for (const needed of [
+        'implementations/react',
+        'implementations/vue',
+        'implementations/angular',
+        'trunk build',
+        'composer install',
+      ]) {
+        assert(body.includes(needed), `the capture block never mentions ${needed}`);
+      }
+      const iSetup = body.indexOf('implementations/react');
+      const iStart = body.indexOf('bash scripts/start-servers.sh');
+      assert(iSetup !== -1 && iStart !== -1 && iSetup < iStart,
+        'the framework setup must come before the start-servers.sh command');
+    });
+  }
+
   // --- results PRs must clear the visual-parity gate ------------------------
   console.log('\nresults PR gating (finding 23)');
   {
@@ -2508,6 +2765,28 @@ while True:
       assert(/gh workflow run basic-checks\.yml --ref "\$BRANCH_NAME"/.test(benchmark) &&
              /gh workflow run benchmark\.yml --ref "\$BRANCH_NAME"/.test(benchmark),
         'the original two dispatches were lost');
+    });
+
+    await test('Visual Parity runs on ordinary PRs into the protected branch', () => {
+      // A results PR covers itself via the auto-merger, but ordinary PRs are
+      // enforced by branch protection -- and that only works if the workflow
+      // actually triggers on pull_request to the protected branch.
+      const parity = fs.readFileSync(
+        path.join(ROOT, '.github', 'workflows', 'visual-parity.yml'), 'utf8');
+      assert(/pull_request:[\s\S]*?branches:\s*\[\s*main\s*\]/.test(parity),
+        'Visual Parity does not trigger on pull_request to main');
+      assert(/^\s*(workflow_dispatch|push):/m.test(parity),
+        'Visual Parity cannot be dispatched for a results branch');
+    });
+
+    await test('the maintainer docs require Visual Parity on the protected branch', () => {
+      // The workflow existing is not enough: it must be a required status check,
+      // which is a repository setting documented in WORKFLOWS_README.md.
+      const doc = fs.readFileSync(path.join(ROOT, '.github', 'WORKFLOWS_README.md'), 'utf8');
+      assert(/Visual Parity must be a required status check/.test(doc),
+        'WORKFLOWS_README.md no longer documents Visual Parity as a required check');
+      assert(/Capture \/ verify \/ parity \/ pixel/.test(doc),
+        'the required-check name is not the Visual Parity job name');
     });
   }
 

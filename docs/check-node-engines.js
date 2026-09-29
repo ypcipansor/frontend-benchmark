@@ -30,7 +30,7 @@ for (let i = 0; i < argv.length; i++) {
   }
 }
 
-const { satisfiesRange, satisfiesRangeTriple, pinVersions } = require('./lib/node-semver');
+const { satisfiesRange, satisfiesRangeTriple, pinVersions, boundaryVersions } = require('./lib/node-semver');
 
 const problems = [];
 const fail = (msg) => problems.push(msg);
@@ -63,26 +63,54 @@ const angularPkg = readJson('implementations/angular/package.json', 'implementat
 if (!angularPkg) fail('implementations/angular/package.json is missing');
 else addRequirement('implementations/angular/package.json engines.node', angularPkg.engines && angularPkg.engines.node);
 
-// The declared floor must not drift from the CLI that is actually installed.
+// The declared floor must not drift from the CLI that is actually installed:
+// the declaration is what every *other* gate trusts, so it has to describe the
+// same supported set as the CLI. When the installed CLI is present (a local run,
+// or CI once the Angular dependencies are installed) two failures matter:
+//
+//   * the CLI accepts a version the declaration rejects, so the declaration
+//     understates the real requirement; and
+//   * the declaration accepts a version the CLI rejects, so the gate would wave
+//     through a Node the dev server then refuses to start.
+//
+// `cliRange` is kept so the same installed range also gets checked against the
+// actual workflow pins below -- the sampled versions are a fixed list and can
+// miss a compatibility change between them.
+let cliRange = null;
+let cliVersion = null;
 const installedCli = readJson(
   'implementations/angular/node_modules/@angular/cli/package.json',
   'installed @angular/cli'
 );
 if (installedCli && installedCli.engines && installedCli.engines.node) {
+  cliRange = installedCli.engines.node;
+  cliVersion = installedCli.version;
   const declared = angularPkg && angularPkg.engines && angularPkg.engines.node;
   if (declared) {
-    // Every version the installed CLI accepts must be accepted by the declared
-    // floor, otherwise the declaration understates the real requirement.
-    const sampleVersions = ['22.22.3', '22.23.0', '23.0.0', '24.15.0', '24.21.0', '26.0.0'];
-    for (const v of sampleVersions) {
-      const installedOk = satisfiesRange(v, installedCli.engines.node);
-      const declaredOk = satisfiesRange(v, declared);
+    // Compare the two ranges at every version the ranges themselves point at
+    // (each boundary and its neighbours), not a hand-picked list: a CLI floor
+    // that moved by one patch release is caught, and a disjoint range that
+    // excludes a whole major is still probed. Two failures matter, because the
+    // declaration is what every other gate trusts:
+    //   * the CLI accepts a version the declaration rejects (the declaration
+    //     understates the real requirement), and
+    //   * the declaration accepts a version the CLI rejects (the gate would wave
+    //     through a Node the dev server then refuses to start).
+    for (const triple of boundaryVersions(installedCli.engines.node)) {
+      const v = triple.join('.');
+      const installedOk = satisfiesRangeTriple(triple, installedCli.engines.node);
+      const declaredOk = satisfiesRangeTriple(triple, declared);
       if (installedOk === null || declaredOk === null) {
         fail(`cannot compare ${v} against the Angular CLI engines`);
       } else if (installedOk && !declaredOk) {
         fail(
           `implementations/angular/package.json engines.node (${declared}) rejects Node ${v}, ` +
           `which the installed @angular/cli ${installedCli.version} accepts (${installedCli.engines.node})`
+        );
+      } else if (declaredOk && !installedOk) {
+        fail(
+          `implementations/angular/package.json engines.node (${declared}) accepts Node ${v}, ` +
+          `which the installed @angular/cli ${installedCli.version} rejects (${installedCli.engines.node})`
         );
       }
     }
@@ -91,6 +119,14 @@ if (installedCli && installedCli.engines && installedCli.engines.node) {
 
 if (requirements.length === 0) {
   fail('no Node.js engine requirements were found to check');
+}
+
+// The pins must also satisfy the *installed* CLI's own range, not only the
+// checked-in declaration. If a newer CLI raises its floor while the declaration
+// (and the commit) still name the old one, checking the declaration alone would
+// pass and the dev server would refuse the pinned Node at run time.
+if (cliRange) {
+  addRequirement(`installed @angular/cli ${cliVersion} engines.node`, cliRange);
 }
 
 // Collect every `node-version:` pin from the workflows.

@@ -313,6 +313,21 @@ stop_started() {
   done
 }
 
+# If this script is interrupted while it is waiting for servers (Ctrl-C, or a CI
+# cancellation's SIGTERM), the servers it already launched keep running in their
+# own sessions and hold their ports, so the next start fails the preflight. Trap
+# both signals and reap what this run started before exiting. stop_started only
+# signals groups it can prove it launched (verified state carrying this run's
+# token, or the exact session leader it spawned), so an interruption can never
+# touch a foreign server. Successfully started servers are intentionally left
+# running -- this cleanup runs only on a signal or a recorded failure.
+on_interrupt() {
+  echo "start-servers.sh: interrupted; stopping the servers this run started" >&2
+  stop_started
+  exit 130
+}
+trap on_interrupt INT TERM
+
 wait_port() {
   local name="$1" port="$2"
   if ! want "$name"; then return; fi

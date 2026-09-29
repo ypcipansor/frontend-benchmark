@@ -86,7 +86,7 @@ The complete set of 35 captures, framework by framework. Full-resolution PNGs (1
 |:---:|:---:|:---:|:---:|:---:|
 | ![Vue all](docs/images/vue/all.jpg) | ![Vue active](docs/images/vue/active.jpg) | ![Vue completed](docs/images/vue/completed.jpg) | ![Vue input](docs/images/vue/input-filled.jpg) | ![Vue empty](docs/images/vue/empty-state.jpg) |
 
-### 🅰️ Angular 21 (TypeScript)
+### 🅰️ Angular 22 (TypeScript)
 
 | All | Active | Completed | Input | Empty |
 |:---:|:---:|:---:|:---:|:---:|
@@ -255,6 +255,16 @@ npm ci                      # Playwright + pngjs, from the committed lockfile
 npx playwright install chromium
 python3 -m pip install -r requirements.txt   # NumPy + Pillow
 
+# On a fresh checkout the implementations must be set up too: start-servers.sh
+# launches each dev server, so the JS dependencies, the built Rust dists and
+# Blade's Composer packages have to exist first (see Prerequisites for the
+# Node.js / Rust / PHP toolchains).
+(cd ../implementations/react   && npm install)
+(cd ../implementations/vue     && npm install)
+(cd ../implementations/angular && npm install)
+for fw in leptos yew dioxus; do (cd "../implementations/$fw" && trunk build --release); done
+(cd ../implementations/blade   && composer install)
+
 bash scripts/start-servers.sh   # all seven dev servers on their fixed ports
 npm run capture             # 1. capture all 35 screenshots (fails non-zero on any error)
 npm run verify              # 2. reject blank / white / mis-sized / incomplete captures
@@ -264,7 +274,7 @@ npm run optimize            # 5. card-cropped JPEGs for this README
 npm run montage             # 6. side-by-side comparison montages
 npm run check:docs          # 7. documented npm commands name their working directory
 npm run check:css           # 8. shared/styles/todo.css has not drifted in any copy
-npm test                    # 10. 148 regression tests for the tooling's failure modes
+npm test                    # 10. regression suite for the tooling's failure modes
 bash scripts/stop-servers.sh
 ```
 

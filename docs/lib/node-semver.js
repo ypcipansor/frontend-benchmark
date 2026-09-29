@@ -91,4 +91,41 @@ function pinTriple(value) {
   return versions ? versions[versions.length - 1] : null;
 }
 
-module.exports = { parseVersion, compare, satisfiesRange, satisfiesRangeTriple, pinVersions, pinTriple };
+/**
+ * Every version worth testing against a range, derived from the range itself.
+ *
+ * A checker that compares two ranges by testing a fixed list of versions can
+ * miss a difference that falls between the samples (e.g. a CLI floor that moved
+ * from 24.15.0 to 24.16.0). This returns each comparator target plus its
+ * immediate neighbours (the patch below/above and the next minor), plus a sweep
+ * of major releases so a disjoint range that excludes a whole major (23, 25) is
+ * still probed. Comparing both ranges at every one of these points makes the
+ * verdict depend on the ranges, not on a hand-picked list.
+ */
+function boundaryVersions(range) {
+  const out = [];
+  const seen = new Set();
+  const push = (triple) => {
+    const key = triple.join('.');
+    if (!seen.has(key)) { seen.add(key); out.push(triple); }
+  };
+  for (const clause of String(range).split('||')) {
+    for (const comparator of clause.trim().split(/\s+/).filter(Boolean)) {
+      const target = parseVersion(comparator.replace(/^(>=|<=|>|<|\^|~|=)/, ''));
+      if (!target) continue;
+      push([target[0], target[1], target[2]]);
+      // The version immediately below the boundary: the previous patch, or when
+      // the boundary is an x.y.0 release, the previous minor (so a floor that
+      // moved from 24.16.0 to 24.15.0 is still probed).
+      if (target[2] > 0) push([target[0], target[1], target[2] - 1]);
+      else if (target[1] > 0) push([target[0], target[1] - 1, 0]);
+      else if (target[0] > 1) push([target[0] - 1, 0, 0]);
+      push([target[0], target[1], target[2] + 1]);
+      push([target[0], target[1] + 1, 0]);
+    }
+  }
+  for (let major = 1; major <= 30; major++) push([major, 0, 0]);
+  return out;
+}
+
+module.exports = { parseVersion, compare, satisfiesRange, satisfiesRangeTriple, pinVersions, pinTriple, boundaryVersions };
