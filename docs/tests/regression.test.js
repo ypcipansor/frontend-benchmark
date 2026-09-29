@@ -487,6 +487,68 @@ function pokePixel(file, x, y, channel, delta) {
     const res = run('node', [path.join(DOCS, 'screenshot.js'), '--framework', 'react:notaport', '--out', tmpDir('bad')]);
     assert(res.status !== 0, 'expected non-zero exit');
   });
+  await test('an empty --framework value is rejected (never a full capture)', () => {
+    const out = tmpDir('empty-framework');
+    const res = run('node', [path.join(DOCS, 'screenshot.js'), '--framework', '', '--out', out]);
+    assert(res.status !== 0, `expected non-zero exit for empty --framework, got ${res.status}`);
+    assert(/non-empty/.test(res.stderr + res.stdout), 'no clear error message');
+    // Must fail *before* capturing: the option directory holds no framework.
+    const captured = fs.existsSync(out) ? fs.readdirSync(out).filter((d) => d !== 'screenshot-report.json') : [];
+    assert(captured.length === 0, `empty --framework captured ${captured.join(', ')}`);
+  });
+  await test('a --framework flag with no value is rejected', () => {
+    const res = run('node', [path.join(DOCS, 'screenshot.js'), '--out', tmpDir('bad'), '--framework']);
+    assert(res.status !== 0, 'a bare --framework must fail');
+  });
+
+  // 21: a browser-launch failure must invalidate the requested frameworks.
+  {
+    // Fresh, complete, otherwise-valid captures that a scoped verify would
+    // accept. Force the real launch to fail by pointing Playwright at a
+    // directory with no browsers, so the failure happens before the framework
+    // loop -- exactly the window the finding describes.
+    const dir = tmpDir('launch-fail');
+    writeShots(dir, { runId: 'gen-A', frameworks: ['fixture'] });
+    const emptyBrowsers = tmpDir('no-browsers');
+    const res = run(
+      'node',
+      [path.join(DOCS, 'screenshot.js'), '--framework', `fixture:${FIXTURE_PORT}`, '--out', dir],
+      { env: { PLAYWRIGHT_BROWSERS_PATH: emptyBrowsers } }
+    );
+    await test('a failed browser launch exits non-zero', () => {
+      assert(res.status !== 0, `expected non-zero exit, got ${res.status}\n${res.stdout}`);
+    });
+    await test('a failed browser launch deletes the stale framework images', () => {
+      const leftover = fs.existsSync(path.join(dir, 'fixture'))
+        ? fs.readdirSync(path.join(dir, 'fixture'))
+        : [];
+      assert(leftover.length === 0, `stale images survived: ${leftover.join(', ')}`);
+    });
+    await test('a failed browser launch records the failure in the report', () => {
+      const raw = JSON.parse(fs.readFileSync(path.join(dir, 'screenshot-report.json'), 'utf8'));
+      assert(raw.fixture && raw.fixture.failed === true,
+        `requested framework not marked failed: ${JSON.stringify(raw.fixture)}`);
+      assert(!raw.__meta || raw.__meta.fullSet !== true, 'failed launch claimed a full fresh set');
+    });
+    await test('a scoped verify rejects a capture whose launch failed', () => {
+      const res2 = run('node', [
+        path.join(DOCS, 'verify-screenshots.js'), '--dir', dir, '--framework', 'fixture',
+      ]);
+      assert(res2.status !== 0, `scoped verify accepted a failed capture:\n${res2.stdout}`);
+    });
+  }
+
+  // 22: captures must hide the text caret. A blinking caret renders as a 1px
+  // column that changes between runs, which showed up as a real pixel-parity
+  // failure in the `input-filled` state (the input is focused there).
+  await test('every screenshot hides the text caret', () => {
+    const src = fs.readFileSync(path.join(DOCS, 'screenshot.js'), 'utf8');
+    const shots = src.match(/page\.screenshot\(/g) || [];
+    assert(shots.length >= 3, `expected the capture screenshots, found ${shots.length}`);
+    const hidden = src.match(/caret:\s*'hide'/g) || [];
+    assert(hidden.length === shots.length,
+      `${shots.length - hidden.length} page.screenshot call(s) do not set caret: 'hide'`);
+  });
 
   // --- 4: optimize runs from an unrelated working directory -----------------
   console.log('\noptimizer portability');

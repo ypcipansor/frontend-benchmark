@@ -52,12 +52,16 @@ function fail(message) {
 
 function parseArgs() {
   const args = process.argv.slice(2);
-  const opts = { out: 'docs/screenshots', base: null, framework: null, width: 1440, height: 1024 };
+  const opts = {
+    out: 'docs/screenshots', base: null,
+    framework: null, frameworkProvided: false,
+    width: 1440, height: 1024,
+  };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--out') opts.out = args[++i];
     else if (a === '--base') opts.base = args[++i];
-    else if (a === '--framework') opts.framework = args[++i];
+    else if (a === '--framework') { opts.framework = args[++i]; opts.frameworkProvided = true; }
     else if (a === '--width') opts.width = parseInt(args[++i], 10);
     else if (a === '--height') opts.height = parseInt(args[++i], 10);
     else fail(`unknown argument ${a}`);
@@ -136,7 +140,7 @@ async function captureFramework(browser, fw, opts) {
       await settleAnimations(page);
       await recordLabels(view.key);
       const file = path.join(dir, `${view.key}.png`);
-      await page.screenshot({ path: file, fullPage: false, animations: 'disabled' });
+      await page.screenshot({ path: file, fullPage: false, animations: 'disabled', caret: 'hide' });
       entries.push({ view: view.key, file });
     }
     // Return to All
@@ -147,7 +151,7 @@ async function captureFramework(browser, fw, opts) {
     await settleAnimations(page);
     await recordLabels('input-filled');
     const added = path.join(dir, 'input-filled.png');
-    await page.screenshot({ path: added, fullPage: false, animations: 'disabled' });
+    await page.screenshot({ path: added, fullPage: false, animations: 'disabled', caret: 'hide' });
     entries.push({ view: 'input-filled', file: added });
     await page.locator('.todo-input').first().fill('');
 
@@ -188,7 +192,7 @@ async function captureFramework(browser, fw, opts) {
     await settleAnimations(page);
     await recordLabels('empty-state');
     const emptyFile = path.join(dir, 'empty-state.png');
-    await page.screenshot({ path: emptyFile, fullPage: false, animations: 'disabled' });
+    await page.screenshot({ path: emptyFile, fullPage: false, animations: 'disabled', caret: 'hide' });
     entries.push({ view: 'empty-state', file: emptyFile });
 
     return {
@@ -228,7 +232,14 @@ async function captureFramework(browser, fw, opts) {
   // --framework accepts either a known name (react, vue, …) or `name:port` so
   // the regression tests can point the same code path at a fixture server.
   let list = FRAMEWORKS;
-  if (opts.framework) {
+  // Whether the scoped/extended behavior applies. An explicit --framework flag
+  // counts as a scoped run even if its value is empty, so `--framework ''`
+  // cannot silently fall through to a full seven-framework capture.
+  const scoped = opts.frameworkProvided;
+  if (opts.frameworkProvided) {
+    if (typeof opts.framework !== 'string' || opts.framework.trim() === '') {
+      fail('--framework requires a non-empty name (react, vue, … or name:port)');
+    }
     const [name, port] = opts.framework.split(':');
     if (port !== undefined) {
       const n = Number(port);
@@ -261,7 +272,7 @@ async function captureFramework(browser, fw, opts) {
   // A full run starts from an empty report so removed frameworks cannot linger.
   // An incremental run keeps the other frameworks' entries but records that the
   // set is no longer a single full generation.
-  const isFullSet = !opts.framework;
+  const isFullSet = !scoped;
   let report = {};
   if (!isFullSet && fs.existsSync(reportPath)) {
     try { report = JSON.parse(fs.readFileSync(reportPath, 'utf8')); } catch { report = {}; }
@@ -279,8 +290,27 @@ async function captureFramework(browser, fw, opts) {
   const failures = [];
   let browser;
   try {
-    browser = await chromium.launch({ args: ['--no-sandbox'] });
+    try {
+      browser = await chromium.launch({ args: ['--no-sandbox'] });
+    } catch (e) {
+      // Chromium failed to start before any framework was touched. Invalidate
+      // every requested framework anyway -- delete its images and record a
+      // failed entry -- so an old capture and report cannot pass a later
+      // scoped verification as if this run had refreshed them.
+      console.error(`\nscreenshot.js: could not launch Chromium: ${e.message}`);
+      for (const fw of list) {
+        fs.rmSync(path.join(opts.out, fw.name), { recursive: true, force: true });
+        delete report[fw.name];
+        report[fw.name] = {
+          error: `browser launch failed: ${e.message}`,
+          failed: true,
+          captureRunId: opts.captureRunId,
+        };
+        failures.push(`${fw.name}: browser launch failed`);
+      }
+    }
     for (const fw of list) {
+      if (!browser) break;
       process.stdout.write(`capturing ${fw.name} ... `);
       try {
         const entry = await captureFramework(browser, fw, opts);
