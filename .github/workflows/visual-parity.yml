@@ -24,7 +24,13 @@ jobs:
   parity:
     name: Capture / verify / parity / pixel
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # The regression suite is the long pole: it drives the real capture pipeline
+    # several times and, at the end, re-runs the whole thing once with the
+    # production captures hidden (to prove the suite is self-contained), so it
+    # alone can take 30-45m on a runner. 45m total was not enough headroom for
+    # the ~8m of setup/build/capture that precedes it; 75m keeps a genuine hang
+    # failing the job while leaving the suite room to finish.
+    timeout-minutes: 75
 
     steps:
       - uses: actions/checkout@v4
