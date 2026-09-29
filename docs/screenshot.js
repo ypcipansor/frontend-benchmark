@@ -81,15 +81,21 @@ async function clickFilter(page, label) {
 // a mid-transition value. `.todo-input` transitions its border colour over 300ms
 // when focused, and screenshotting after a fixed delay captured a different
 // interpolation on different runs/frameworks — a real pixel diff that is pure
-// timing noise, not a rendering difference.
+// timing noise, not a rendering difference. `getAnimations().finished` also
+// resolves to `[]` when the page has no running animations at all, so an edge
+// that is still interpolating on a loaded runner could slip through; re-check
+// until two consecutive samples agree (or the deadline passes).
 async function settleAnimations(page) {
-  await page.evaluate(async () => {
-    const animations = document.getAnimations().map((a) => a.finished.catch(() => {}));
-    await Promise.race([
-      Promise.all(animations),
-      new Promise((resolve) => setTimeout(resolve, 2000)),
-    ]);
-  });
+  const deadline = Date.now() + 3000;
+  let stable = 0;
+  while (stable < 2 && Date.now() < deadline) {
+    const running = await page.evaluate(() =>
+      document.getAnimations().filter((a) => a.playState === 'running').length
+    );
+    if (running === 0) stable++;
+    else stable = 0;
+    if (stable < 2) await page.waitForTimeout(50);
+  }
 }
 
 async function captureFramework(browser, fw, opts) {

@@ -549,6 +549,19 @@ function pokePixel(file, x, y, channel, delta) {
     assert(hidden.length === shots.length,
       `${shots.length - hidden.length} page.screenshot call(s) do not set caret: 'hide'`);
   });
+  await test('settleAnimations waits for running transitions to reach steady state', () => {
+    // A single `getAnimations().finished` snapshot resolves immediately when no
+    // animation is registered yet, so an edge mid-transition could be captured
+    // (the focused `.todo-input` border over its 300ms transition). The wait must
+    // poll `playState === 'running'` until two consecutive samples are empty.
+    const src = fs.readFileSync(path.join(DOCS, 'screenshot.js'), 'utf8');
+    const fn = src.match(/async function settleAnimations\(page\)\s*\{[\s\S]*?\n\}/);
+    assert(fn, 'settleAnimations not found');
+    assert(/playState\s*===\s*'running'/.test(fn[0]),
+      'settleAnimations does not sample running animations');
+    assert(/stable\s*<\s*2/.test(fn[0]),
+      'settleAnimations does not require two consecutive steady samples');
+  });
 
   // --- 4: optimize runs from an unrelated working directory -----------------
   console.log('\noptimizer portability');
