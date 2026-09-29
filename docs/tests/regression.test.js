@@ -381,7 +381,12 @@ function pokePixel(file, x, y, channel, delta) {
   // no-captures run below: that run renames docs/screenshots aside and normally
   // restores it in a finally block, but an uncatchable kill can leave the
   // checkout missing its production captures. Restore them on the next start.
-  {
+  //
+  // Skip it when captures are *intentionally* absent (--require-no-captures, as
+  // the self-containment job runs): restoring here would undo that job's setup
+  // and silently turn the proof into an ordinary run. The flag asserts the
+  // absence instead.
+  if (!REQUIRE_NO_CAPTURES) {
     const HIDDEN = path.join(DOCS, '.screenshots-hidden');
     if (fs.existsSync(HIDDEN) && !fs.existsSync(SHOTS)) {
       fs.renameSync(HIDDEN, SHOTS);
@@ -2864,38 +2869,62 @@ while True:
         'Visual Parity cannot be dispatched for a results branch');
     });
 
-    await test('the regression suite runs as its own Visual Parity job', () => {
-      // The suite re-runs the whole capture pipeline (nested self-containment),
-      // so bundling it into the capture job pushed that job against the runner's
-      // ~30m ceiling and got it evicted mid-run. It must be a separate job so the
-      // capture job stays well under the limit. Parsing YAML would add a
-      // dependency, so split on the two-space job header instead.
+    await test('the regression suite and its self-containment proof are separate jobs', () => {
+      // The suite re-runs the whole capture pipeline, so running it twice in one
+      // job (once normally, once with the captures hidden to prove
+      // self-containment) pushed that job against the runner's ~30m ceiling and
+      // got it evicted mid-run. Each proof must be its own job so no job runs the
+      // suite twice. Parsing YAML would add a dependency, so split on the
+      // two-space job headers instead.
       const parity = fs.readFileSync(
         path.join(ROOT, '.github', 'workflows', 'visual-parity.yml'), 'utf8');
-      const marker = '\n  regression:\n';
-      const at = parity.indexOf(marker);
-      assert(at !== -1, 'visual-parity.yml no longer defines a separate `regression` job');
-      const captureJob = parity.slice(0, at);
-      const regressionJob = parity.slice(at);
+      const cut = (marker) => {
+        const at = parity.indexOf(marker);
+        assert(at !== -1, `visual-parity.yml no longer defines the \`${marker.trim()}\` job`);
+        return at;
+      };
+      const atRegression = cut('\n  regression:\n');
+      const atSelf = cut('\n  self-containment:\n');
+      const captureJob = parity.slice(0, atRegression);
+      const regressionJob = parity.slice(atRegression, atSelf);
+      const selfJob = parity.slice(atSelf);
       assert(!/npm\s+test\b/.test(captureJob),
         'the capture job still runs `npm test`, so the split regressed');
       assert(/npm\s+test\b/.test(regressionJob),
-        'the separate regression job does not run `npm test`');
+        'the regression job does not run `npm test`');
+      assert(/FB_REGRESSION_SKIP_SELF_CONTAINMENT/.test(regressionJob),
+        'the ordinary regression job does not skip the nested self-containment re-run');
+      assert(/--require-no-captures/.test(selfJob),
+        'the self-containment job does not run the suite with --require-no-captures');
     });
 
-    await test('the maintainer docs require Visual Parity on the protected branch', () => {
-      // The workflow existing is not enough: it must be a required status check,
+    await test('the maintainer docs require every Visual Parity check on the branch', () => {
+      // The workflows existing is not enough: they must be required status checks,
       // which is a repository setting documented in WORKFLOWS_README.md.
       const doc = fs.readFileSync(path.join(ROOT, '.github', 'WORKFLOWS_README.md'), 'utf8');
       assert(/Visual Parity must be a required status check/.test(doc),
         'WORKFLOWS_README.md no longer documents Visual Parity as a required check');
       assert(/Capture \/ verify \/ parity \/ pixel/.test(doc),
         'the required-check name is not the Visual Parity job name');
+      assert(/Regression tests/.test(doc),
+        'the regression job is not documented as a required check');
+      assert(/Regression tests \(no captures\)/.test(doc),
+        'the self-containment job is not documented as a required check');
     });
   }
 
   // --- self-containment: the suite must pass with no production captures ----
-  if (!process.env.FB_REGRESSION_RECURSION) {
+  // Locally (plain `npm test`) this drives the proof by hiding the captures and
+  // re-running the whole suite once, so a developer gets the guarantee without
+  // any extra command. CI runs the proof as its own job -- captures hidden by the
+  // job, then `--require-no-captures` -- and sets FB_REGRESSION_SKIP_SELF_CONTAINMENT
+  // on the ordinary job. Either way each process runs the suite exactly once;
+  // only the local run nests, because only the local run is not already the proof.
+  const SELF_CONTAINMENT_DONE =
+    process.env.FB_REGRESSION_RECURSION ||
+    process.env.FB_REGRESSION_SKIP_SELF_CONTAINMENT ||
+    REQUIRE_NO_CAPTURES;
+  if (!SELF_CONTAINMENT_DONE) {
     const HIDDEN = path.join(DOCS, '.screenshots-hidden');
     let moved = false;
     const restore = () => {

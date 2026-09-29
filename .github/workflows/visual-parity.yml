@@ -213,6 +213,51 @@ jobs:
       # those only need their runtime (bash, python3, a browser), not the
       # framework dev servers or a trunk build. The leptos dist it uses is
       # created as a synthetic fixture inside the test itself.
+      #
+      # The nested self-containment proof runs as its own job below, so skip it
+      # here: running the suite twice in one job is what tripped the runner's
+      # ~30m ceiling.
       - name: Regression tests
         working-directory: docs
+        env:
+          FB_REGRESSION_SKIP_SELF_CONTAINMENT: '1'
         run: npm test
+
+  # The suite claims it is self-contained: it must pass with no production
+  # captures on disk. Prove it in its own job -- hide docs/screenshots, then run
+  # the suite with --require-no-captures (which asserts the captures really are
+  # gone). Kept separate from the job above so neither runs the suite twice.
+  self-containment:
+    name: Regression tests (no captures)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.15.0'
+          cache: 'npm'
+          cache-dependency-path: docs/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: docs/requirements.txt
+
+      - name: Install docs tooling (npm ci)
+        working-directory: docs
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Install Python tooling (pinned)
+        run: python3 -m pip install -r docs/requirements.txt
+
+      - name: Regression tests with production captures hidden
+        working-directory: docs
+        run: |
+          mv screenshots .screenshots-hidden
+          node tests/regression.test.js --require-no-captures
