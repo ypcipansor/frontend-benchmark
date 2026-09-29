@@ -52,6 +52,17 @@ npm test          # regression tests for the tooling's failure modes
 bash scripts/stop-servers.sh
 ```
 
+`npm test` is the regression suite for the tooling's failure modes. Locally it
+drives the production scripts and, at the end, hides `docs/screenshots/` and
+re-runs itself once to prove the suite is self-contained, so a plain `npm test`
+covers both proofs. CI cannot afford that doubling: `visual-parity.yml` runs it
+as two jobs — `Regression tests` (sets `FB_REGRESSION_SKIP_SELF_CONTAINMENT=1`,
+runs the suite once) and `Regression tests (no captures)` (hides the captures,
+runs `node tests/regression.test.js --require-no-captures`). Each job runs the
+suite exactly once, so neither approaches the runner's ~30m wall-time ceiling.
+`--require-no-captures` fails fast if `docs/screenshots/` still exists and
+suppresses the crash-recovery rename that would otherwise undo the job's setup.
+
 A capture that fails deletes the affected framework's screenshots and exits
 non-zero, so a stale image can never be mistaken for a fresh one. `npm run pixel`
 reads the saved screenshots and `screenshot-report.json`, so it works without any
