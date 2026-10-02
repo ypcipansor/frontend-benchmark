@@ -42,7 +42,7 @@ jobs:
           cache: 'npm'
           cache-dependency-path: docs/package-lock.json
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: 'pip'
@@ -194,7 +194,7 @@ jobs:
           cache: 'npm'
           cache-dependency-path: docs/package-lock.json
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: 'pip'
@@ -241,7 +241,7 @@ jobs:
           cache: 'npm'
           cache-dependency-path: docs/package-lock.json
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: 'pip'
